@@ -1,0 +1,17 @@
+{
+  "name": "Spotify Lyrics App",
+  "short_name": "Lyrics",
+  "description": "Karaoke-style lyrics synced to Spotify, optimised for Tesla car browsers",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

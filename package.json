@@ -1,0 +1,57 @@
+{
+  "name": "tesla-lyrics",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Karaoke-style lyrics synced to Spotify, optimised for Tesla car browsers",
+  "author": "Josep Marí",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xusoo/get-lyrics-app"
+  },
+  "homepage": "https://getlyrics.app/",
+  "bugs": {
+    "url": "https://github.com/xusoo/get-lyrics-app/issues"
+  },
+  "keywords": ["spotify", "lyrics", "karaoke", "tesla", "lrclib"],
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:host": "vite --host",
+    "typecheck": "tsc -b",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "preview:host": "vite preview --host",
+    "check": "npm run typecheck && npm run lint && npm run build",
+    "vercel:link": "npx vercel link",
+    "vercel:pull:preview": "npx vercel pull --yes --environment=preview",
+    "vercel:pull:prod": "npx vercel pull --yes --environment=production",
+    "vercel:build": "npx vercel build",
+    "deploy:preview": "npx vercel deploy --prebuilt",
+    "deploy:prod": "npx vercel deploy --prebuilt --prod",
+    "deploy:preview:full": "npm run vercel:pull:preview && npm run vercel:build && npm run deploy:preview",
+    "deploy:prod:full": "npm run vercel:pull:prod && npm run vercel:build && npm run deploy:prod"
+  },
+  "dependencies": {
+    "lucide-react": "^1.18.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "tailwindcss": "^4.3.1",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12"
+  }
+}
