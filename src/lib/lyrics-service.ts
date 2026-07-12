@@ -43,10 +43,16 @@ interface CandidateEntry {
 }
 
 // Search results per track (localStorage only stores the resolved lyrics, so the
-// candidate list for the manual picker lives here in memory).
-export const candidateCache = new Map<string, CandidateEntry>();
+// candidate list for the manual picker lives here in memory). Kept private to the
+// service — callers go through getCandidates/rememberCandidates.
+const candidateCache = new Map<string, CandidateEntry>();
 
 const MAP_CAP = 2000;
+
+/** Read the cached candidate entry for a track, if any. */
+export function getCandidates(trackId: string): CandidateEntry | undefined {
+  return candidateCache.get(trackId);
+}
 
 /** Set a Map entry, evicting the oldest key when the cap is exceeded. */
 export function rememberCandidates(trackId: string, entry: CandidateEntry): void {

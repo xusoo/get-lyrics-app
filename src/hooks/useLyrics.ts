@@ -6,7 +6,7 @@ import {
   loadLyrics,
   searchLyrics,
   cancelLyrics,
-  candidateCache,
+  getCandidates,
   rememberCandidates,
   type FetchPriority,
 } from '../lib/lyrics-service';
@@ -53,7 +53,7 @@ export function useLyrics(track: SpotifyTrack | null, role: FetchPriority | 'pas
     const persisted = getFromStore(track.id);
     if (persisted) {
         console.log(`💾 [LRCLIB] Cache hit  "${track.name}" by ${artistName}  (${role})`);
-      const saved = candidateCache.get(track.id);
+      const saved = getCandidates(track.id);
       setState({ ...BLANK, ...persisted, candidates: saved?.candidates ?? [], pickerQuery: saved?.query ?? defaultQuery, recommendedId: saved?.recommendedId ?? null, selectedId: saved?.selectedId ?? persisted.selectedId });
       return;
     }
@@ -98,7 +98,9 @@ export function useLyrics(track: SpotifyTrack | null, role: FetchPriority | 'pas
     return () => {
       cancelled = true;
       // Only the active slot cancels its in-flight request when leaving the track.
-      // Prefetch slots let their fetch finish so the cache gets populated.
+      // Prefetch slots don't cancel here, but the serial queue may still preempt
+      // (abort) a running prefetch when a 'current' request arrives — in that case
+      // the cache simply isn't populated until the track later becomes current.
       if (role === 'current') cancelLyrics(requestedTrackId);
     };
   }, [track?.id, retryCount, role]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -113,7 +115,7 @@ export function useLyrics(track: SpotifyTrack | null, role: FetchPriority | 'pas
     if (!t) return;
     const artistName = t.artists[0]?.name ?? '';
     const defaultQuery = `${artistName} ${t.name}`;
-    const saved = candidateCache.get(t.id);
+    const saved = getCandidates(t.id);
     if (saved) {
       setState((prev) => ({ ...prev, status: 'picking', candidates: saved.candidates, pickerQuery: saved.query, recommendedId: saved.recommendedId, selectedId: saved.selectedId ?? prev.selectedId }));
       return;
@@ -150,7 +152,7 @@ export function useLyrics(track: SpotifyTrack | null, role: FetchPriority | 'pas
     const parsed = parseLyricsResult(c.syncedLyrics, c.plainLyrics);
     if (t) {
       putToStore(t.id, c.syncedLyrics, c.plainLyrics, c.id);
-      const cached = candidateCache.get(t.id);
+      const cached = getCandidates(t.id);
       if (cached) rememberCandidates(t.id, { ...cached, selectedId: c.id });
     }
     setState((prev) => ({ ...prev, ...parsed, selectedId: c.id }));
@@ -163,7 +165,7 @@ export function useLyrics(track: SpotifyTrack | null, role: FetchPriority | 'pas
     searchLyrics(t, query)
       .then((candidates) => {
         if (trackRef.current?.id !== t.id) return;
-        const cached = candidateCache.get(t.id);
+        const cached = getCandidates(t.id);
         rememberCandidates(t.id, { candidates, query, recommendedId: null, selectedId: cached?.selectedId ?? null });
         setState((prev) => (prev.status === 'picking' ? { ...prev, candidates, isSearching: false } : prev));
       })

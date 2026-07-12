@@ -13,13 +13,7 @@
   "bugs": {
     "url": "https://github.com/xusoo/get-lyrics-app/issues"
   },
-  "keywords": [
-    "spotify",
-    "lyrics",
-    "karaoke",
-    "tesla",
-    "lrclib"
-  ],
+  "keywords": ["spotify", "lyrics", "karaoke", "tesla", "lrclib"],
   "type": "module",
   "scripts": {
     "dev": "vite",

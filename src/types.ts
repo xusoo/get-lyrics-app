@@ -23,12 +23,14 @@ export interface SpotifyTrack {
   album: SpotifyAlbum;
 }
 
+export type RepeatState = 'off' | 'track' | 'context';
+
 export interface PlaybackState {
   track: SpotifyTrack;
   progress_ms: number;
   is_playing: boolean;
   timestamp: number; // local performance.now() at the time of the poll
-  repeat_state?: string;
+  repeat_state?: RepeatState;
 }
 
 export interface LyricLine {
@@ -59,5 +61,5 @@ export interface CurrentlyPlayingResponse {
   progress_ms: number | null;
   is_playing: boolean;
   currently_playing_type: string;
-  repeat_state?: string;
+  repeat_state?: RepeatState;
 }

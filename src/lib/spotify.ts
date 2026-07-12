@@ -365,11 +365,15 @@ function isSpotifyTrack(item: unknown): item is SpotifyTrack {
   );
 }
 
+// How many upcoming tracks to keep as a look-ahead buffer. MainView consumes the
+// first as the immediate "next" and the rest as an optimistic queue for rapid skips.
+const QUEUE_LOOKAHEAD = 5;
+
 export async function getNextInQueue(accessToken: string, signal?: AbortSignal): Promise<SpotifyTrack[]> {
   const res = await spotifyFetch('https://api.spotify.com/v1/me/player/queue', accessToken, { signal });
   if (!res.ok) return [];
   const json = await res.json() as { queue?: unknown[] };
-  return (json?.queue ?? []).filter(isSpotifyTrack).slice(0, 5);
+  return (json?.queue ?? []).filter(isSpotifyTrack).slice(0, QUEUE_LOOKAHEAD);
 }
 
 export async function getQueue(accessToken: string): Promise<{ currentlyPlaying: SpotifyTrack | null; queue: SpotifyTrack[] }> {
