@@ -1,0 +1,4 @@
+# Exclude local environment files — set variables in the Vercel Dashboard instead
+.env
+.env.*
+!.env.example
