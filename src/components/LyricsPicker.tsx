@@ -27,8 +27,6 @@ export function LyricsPicker({ candidates, query, isSearching, selectedId, recom
   // Sync input when query prop changes (e.g. new track loaded while picker open)
   useEffect(() => { setInputValue(query); }, [query]);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
   // Focus trap: keep Tab focus inside the dialog
   useEffect(() => {
     const container = containerRef.current;
