@@ -7,7 +7,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { SongCarousel } from './SongCarousel';
 import { SongPanel } from './SongPanel';
 import { useCurrentTrack } from '../hooks/useCurrentTrack';
-import { useLyrics, prefetchLyrics } from '../hooks/useLyrics';
+import { useLyrics } from '../hooks/useLyrics';
 import { usePlaybackSync } from '../hooks/usePlaybackSync';
 import { useSettings } from '../hooks/useSettings';
 import { usePerSongOffset } from '../hooks/usePerSongOffset';
@@ -83,41 +83,78 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
   const slideOldCurrentRef = useRef<SpotifyTrack | null>(null);
 
   // ── Lyrics for all three slots ───────────────────────────────────────────
-  const prevLyricsData = useLyrics(prevTrack);
-  const currentLyrics = useLyrics(playback?.track ?? null);
+  const prevLyricsData = useLyrics(prevTrack, 'passive');
+  const currentLyrics = useLyrics(playback?.track ?? null, 'current');
   const { openPicker, closePicker, selectCandidate, searchWithQuery, retry: retryLyrics } = currentLyrics;
-  const nextLyricsData = useLyrics(nextTrackForLyrics);
+  const nextLyricsData = useLyrics(nextTrackForLyrics, 'prefetch');
 
   // Per-song offset, keyed by lrclib entry ID
   const perSongOffset = usePerSongOffset(currentLyrics.selectedId, settings.defaultLyricsOffset);
 
-  // ── Prefetch next-queued track lyrics ─────────────────────────────────────
-  const prefetchedForRef = useRef<string | null>(null);
+  // ── Next-track discovery ─────────────────────────────────────────────────
+  // Keyed only on track ID so it fires immediately when the track changes —
+  // not gated on lyrics loading. This ensures nextTrackRef is populated as
+  // soon as the Spotify queue API responds (~0.5 s), so optimistic skip
+  // (setOptimisticTrack) is always available even if lyrics are still loading.
+  // The useLyrics('prefetch') hook wired to nextTrackForLyrics serialises the
+  // actual LRCLIB prefetch through the serial queue (after the current track).
   const nextTrackRef = useRef<SpotifyTrack | null>(null);
+  // Look-ahead queue: tracks that follow the immediate next, pre-fetched from
+  // Spotify. Consumed synchronously by skip handlers so rapid consecutive clicks
+  // get an optimistic update without waiting for a new getNextInQueue call.
+  const pendingQueueRef = useRef<SpotifyTrack[]>([]);
   useEffect(() => {
-    const TERMINAL = ['found', 'not-found', 'error', 'picking'] as const;
-    if (!playback || !(TERMINAL as readonly string[]).includes(currentLyrics.status)) return;
-    if (prefetchedForRef.current === playback.track.id) return;
-    prefetchedForRef.current = playback.track.id;
-    nextTrackRef.current = null;
+    if (!playback) {
+      nextTrackRef.current = null;
+      pendingQueueRef.current = [];
+      return;
+    }
+
     const currentTrackId = playback.track.id;
-    const tryPrefetchNext = (attempt: number) => {
-      getNextInQueue(token.access_token)
-        .then((next) => {
-          if (!next || next.id === currentTrackId) {
-            if (attempt < 1 && prefetchedForRef.current === currentTrackId) {
-              setTimeout(() => tryPrefetchNext(attempt + 1), 2000);
+
+    // Natural advancement: promote the pre-fetched look-ahead immediately so the
+    // skip button has a target before getNextInQueue responds.
+    if (nextTrackRef.current?.id === currentTrackId) {
+      nextTrackRef.current = pendingQueueRef.current[0] ?? null;
+      pendingQueueRef.current = pendingQueueRef.current.slice(1);
+      setNextTrackForLyrics(nextTrackRef.current);
+    } else {
+      // Unexpected track (shuffle, prev, external skip) — stale look-ahead.
+      nextTrackRef.current = null;
+      pendingQueueRef.current = [];
+      setNextTrackForLyrics(null);
+    }
+
+    const ac = new AbortController();
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryDiscoverNext = (attempt: number) => {
+      getNextInQueue(token.access_token, ac.signal)
+        .then((queue) => {
+          if (ac.signal.aborted) return;
+          // Guard against Spotify including the current track in the queue.
+          const upcoming = queue.filter((t) => t.id !== currentTrackId);
+          if (upcoming.length === 0) {
+            nextTrackRef.current = null;
+            pendingQueueRef.current = [];
+            if (attempt < 1) {
+              retryTimer = setTimeout(() => tryDiscoverNext(attempt + 1), 2000);
             }
             return;
           }
-          nextTrackRef.current = next;
-          prefetchLyrics(next);
-          setNextTrackForLyrics(next);
+          nextTrackRef.current = upcoming[0];
+          pendingQueueRef.current = upcoming.slice(1);
+          setNextTrackForLyrics(upcoming[0]);
         })
         .catch(() => {});
     };
-    tryPrefetchNext(0);
-  }, [playback?.track.id, currentLyrics.status]); // eslint-disable-line react-hooks/exhaustive-deps
+    tryDiscoverNext(0);
+
+    return () => {
+      ac.abort();
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [playback?.track.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Detect track changes and decide slide direction ───────────────────────
   useEffect(() => {
@@ -197,10 +234,10 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
     setProgrammaticSlide(null);
 
     if (dir === 'right') {
-      // The old "next" is now the current track. Clear the next slot so the
-      // prefetch effect can populate it with the track that follows the new current.
+      // The discovery effect will re-populate nextTrackRef when the track
+      // change commits. Clear the carousel slot only if it still shows the
+      // song that just became current.
       const newCurrentId = currentTrackObjRef.current?.id;
-      nextTrackRef.current = null;
       setNextTrackForLyrics((prev) => (prev?.id === newCurrentId ? null : prev));
     } else if (dir === 'left') {
       // The old current becomes the "next" (so a right swipe can return to it).
@@ -231,10 +268,12 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
   const handleTrackEnded = useCallback(() => {
     const next = nextTrackRef.current;
     if (!next || swipeInProgressRef.current || pendingDirectionRef.current) return;
+    // Don't auto-advance when repeat-one is active — Spotify will replay the same track.
+    if (playback?.repeat_state === 'track') return;
     pendingDirectionRef.current = 'right';
     pendingTargetTrackIdRef.current = next.id;
     setOptimisticTrack(next);
-  }, [setOptimisticTrack]);
+  }, [setOptimisticTrack, playback?.repeat_state]);
 
   // ── Playback sync (only for the active centre panel) ─────────────────────
   const { currentLineIndex, getInterpolatedMs, setOptimisticSeek } = usePlaybackSync(
@@ -267,6 +306,10 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
   const handleSkipNext = useCallback(async () => {
     const next = nextTrackRef.current;
     if (next) {
+      // Advance the look-ahead immediately so rapid consecutive clicks also get
+      // an optimistic update without waiting for getNextInQueue.
+      nextTrackRef.current = pendingQueueRef.current[0] ?? null;
+      pendingQueueRef.current = pendingQueueRef.current.slice(1);
       pendingDirectionRef.current = 'right';
       pendingTargetTrackIdRef.current = next.id;
       setOptimisticTrack(next);
@@ -301,7 +344,8 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
     if (direction === 'right') {
       const next = nextTrackRef.current;
       if (next) {
-        nextTrackRef.current = null;
+        nextTrackRef.current = pendingQueueRef.current[0] ?? null;
+        pendingQueueRef.current = pendingQueueRef.current.slice(1);
         setOptimisticTrack(next);
       }
       skipToNext(token.access_token).catch(() => {});

@@ -302,11 +302,11 @@ async function spotifyFetch(
 
 export async function getCurrentlyPlaying(accessToken: string, signal?: AbortSignal): Promise<CurrentlyPlayingResponse | null> {
   const res = await spotifyFetch(
-    'https://api.spotify.com/v1/me/player/currently-playing?additional_types=track',
+    'https://api.spotify.com/v1/me/player?additional_types=track',
     accessToken,
     { signal },
   );
-  if (res.status === 204 || res.status === 202) return null; // nothing playing
+  if (res.status === 204 || res.status === 202) return null; // nothing playing / no active device
   if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
   const json = await res.json() as CurrentlyPlayingResponse;
   if (!json || json.currently_playing_type !== 'track' || !json.item) return null;
@@ -365,12 +365,11 @@ function isSpotifyTrack(item: unknown): item is SpotifyTrack {
   );
 }
 
-export async function getNextInQueue(accessToken: string): Promise<SpotifyTrack | null> {
-  const res = await spotifyFetch('https://api.spotify.com/v1/me/player/queue', accessToken);
-  if (!res.ok) return null;
+export async function getNextInQueue(accessToken: string, signal?: AbortSignal): Promise<SpotifyTrack[]> {
+  const res = await spotifyFetch('https://api.spotify.com/v1/me/player/queue', accessToken, { signal });
+  if (!res.ok) return [];
   const json = await res.json() as { queue?: unknown[] };
-  const queue = json?.queue ?? [];
-  return queue.find(isSpotifyTrack) ?? null;
+  return (json?.queue ?? []).filter(isSpotifyTrack).slice(0, 5);
 }
 
 export async function getQueue(accessToken: string): Promise<{ currentlyPlaying: SpotifyTrack | null; queue: SpotifyTrack[] }> {

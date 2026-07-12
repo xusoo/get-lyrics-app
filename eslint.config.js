@@ -19,4 +19,14 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['**/*.test.{ts,tsx}'],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.node },
+    },
+    rules: {
+      // renderHook callbacks legitimately call hooks outside a component.
+      'react-hooks/rules-of-hooks': 'off',
+    },
+  },
 ])

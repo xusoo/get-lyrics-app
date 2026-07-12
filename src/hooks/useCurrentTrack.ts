@@ -60,6 +60,7 @@ export function useCurrentTrack(token: TokenData | null) {
           progress_ms: data.progress_ms ?? 0,
           is_playing: data.is_playing ?? false,
           timestamp: performance.now(),
+          repeat_state: data.repeat_state,
         };
         playbackRef.current = next;
         setPlayback(next);
@@ -117,6 +118,7 @@ export function useCurrentTrack(token: TokenData | null) {
       progress_ms: 0,
       is_playing: true,
       timestamp: performance.now(),
+      repeat_state: playbackRef.current?.repeat_state,
     };
     playbackRef.current = next;
     setPlayback(next);
