@@ -27,6 +27,7 @@ function formatDuration(ms: number): string {
 export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSkipTo }: QueuePanelProps) {
   const [entries, setEntries] = useState<QueueEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pendingSkip, setPendingSkip] = useState<{ trackId: string; skipsNeeded: number } | null>(null);
   const accessTokenRef = useRef(accessToken);
   accessTokenRef.current = accessToken;
   const delayedRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,6 +42,7 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
       }
       result.queue.slice(0, 5).forEach((t, i) => all.push({ track: t, skipsNeeded: i + 1 }));
       setEntries(all);
+      setPendingSkip(null);
     } catch {
       // ignore network errors
     } finally {
@@ -75,20 +77,18 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
 
   function handleSkipTo(track: SpotifyTrack, skipsNeeded: number) {
     if (skipsNeeded === 0) return;
-    // Optimistically rearrange: tapped track becomes current (skipsNeeded 0),
-    // skipped-over tracks are dropped, the rest are renumbered.
-    setEntries(prev =>
-      prev
-        .filter(e => e.skipsNeeded >= skipsNeeded)
-        .map(e => ({ ...e, skipsNeeded: e.skipsNeeded - skipsNeeded }))
-    );
+    // Rows stay in place (dimmed instead of removed); onSkipTo still needs the
+    // *incremental* skip count relative to whatever was last marked current,
+    // since it maps directly to a batch of sequential "next" calls.
+    const relativeSkip = skipsNeeded - (pendingSkip?.skipsNeeded ?? 0);
+    setPendingSkip({ trackId: track.id, skipsNeeded });
     // Spotify needs time to process the skip before getQueue is accurate.
     if (delayedRefreshRef.current) clearTimeout(delayedRefreshRef.current);
     delayedRefreshRef.current = setTimeout(() => {
       delayedRefreshRef.current = null;
       void refresh();
     }, 2500);
-    onSkipTo(track, skipsNeeded);
+    onSkipTo(track, relativeSkip);
   }
 
   if (!isOpen) return null;
@@ -132,7 +132,9 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
           <div>
             {entries.map((entry, i) => {
               const { track, skipsNeeded } = entry;
-              const isCurrent = skipsNeeded === 0;
+              const isOptimisticCurrent = pendingSkip ? track.id === pendingSkip.trackId : skipsNeeded === 0;
+              const isDimmed = pendingSkip != null && skipsNeeded < pendingSkip.skipsNeeded && track.id !== pendingSkip.trackId;
+              const isDisabled = isOptimisticCurrent || isDimmed;
               // Use smallest thumbnail to save bandwidth
               const artwork = track.album.images[track.album.images.length - 1]?.url
                 ?? track.album.images[0]?.url;
@@ -141,12 +143,14 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
                 <button
                   key={`${track.id}-${i}`}
                   onClick={() => handleSkipTo(track, skipsNeeded)}
-                  disabled={isCurrent}
+                  disabled={isDisabled}
                   className={[
                     'w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors',
-                    isCurrent
+                    isOptimisticCurrent
                       ? 'bg-white/8 cursor-default'
-                      : 'hover:bg-white/10 active:bg-white/15 cursor-pointer',
+                      : isDimmed
+                        ? 'opacity-40 cursor-not-allowed'
+                        : 'hover:bg-white/10 active:bg-white/15 cursor-pointer',
                   ].join(' ')}
                 >
                   {/* Thumbnail */}
@@ -162,7 +166,7 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
                   <div className="flex-1 min-w-0">
                     <p className={[
                       'text-xs font-medium truncate leading-snug',
-                      isCurrent ? 'text-green-400' : 'text-white/90',
+                      isOptimisticCurrent ? 'text-green-400' : 'text-white/90',
                     ].join(' ')}>
                       {track.name}
                     </p>
@@ -173,7 +177,7 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
 
                   {/* Status indicator */}
                   <div className="flex-shrink-0 flex items-center">
-                    {isCurrent ? (
+                    {isOptimisticCurrent ? (
                       <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
                     ) : (
                       <span className="text-white/25 text-xs tabular-nums">
