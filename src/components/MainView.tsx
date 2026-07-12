@@ -13,7 +13,7 @@ import { useSettings } from '../hooks/useSettings';
 import { usePerSongOffset } from '../hooks/usePerSongOffset';
 import { getNextInQueue, skipToNext, skipToPrevious, skipMultiple, seekTo } from '../lib/spotify';
 import type { TokenData, SpotifyTrack } from '../types';
-import type { SlideDirection } from './SongCarousel';
+import type { SlideDirection, CarouselSlot } from './SongCarousel';
 import { Music2 } from 'lucide-react';
 
 interface MainViewProps {
@@ -73,6 +73,13 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
 
   // ── Slide orchestration ───────────────────────────────────────────────────
   const [programmaticSlide, setProgrammaticSlide] = useState<SlideDirection | null>(null);
+  /**
+   * Direction of the slide currently in progress (mirrors lastSlideDirectionRef
+   * as reactive state). Drives the render window: while sliding, the incoming
+   * panel is sourced from playback.track so its already-mounted, preloaded DOM
+   * is *moved* into the centre rather than rebuilt. Null when not sliding.
+   */
+  const [slideDir, setSlideDir] = useState<SlideDirection | null>(null);
   const lastSlideDirectionRef = useRef<SlideDirection | null>(null);
   const swipeInProgressRef = useRef(false);
   const pendingDirectionRef = useRef<SlideDirection | null>(null);
@@ -189,6 +196,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
       lastSlideDirectionRef.current = pendingDir;
       slideOldCurrentRef.current = oldTrack;
       setFrozenCenterTrack(oldTrack);
+      setSlideDir(pendingDir);
       if (pendingDir === 'right') {
         prevTrackStateRef.current = oldTrack;
         setPrevTrack(oldTrack);
@@ -206,6 +214,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
       lastSlideDirectionRef.current = 'right';
       slideOldCurrentRef.current = oldTrack;
       setFrozenCenterTrack(oldTrack);
+      setSlideDir('right');
       prevTrackStateRef.current = oldTrack;
       setPrevTrack(oldTrack);
       setProgrammaticSlide('right');
@@ -215,6 +224,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
       lastSlideDirectionRef.current = 'left';
       slideOldCurrentRef.current = oldTrack;
       setFrozenCenterTrack(oldTrack);
+      setSlideDir('left');
       setProgrammaticSlide('left');
     } else {
       // Non-sequential (Spotify jumped to an arbitrary track) → instant swap
@@ -249,6 +259,29 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
     }
     slideOldCurrentRef.current = null;
     setFrozenCenterTrack(null);
+    setSlideDir(null);
+  }, []);
+
+  // Freeze the centre on the current (outgoing) track and record the slide
+  // direction in the SAME commit as an optimistic skip. This keeps the keyed
+  // carousel window stable between the optimistic track update and the
+  // track-change effect that actually starts the animation — without it the
+  // window would momentarily re-centre the new track, remounting the outgoing
+  // panel (a one-frame flicker). The effect re-applies these idempotently.
+  //
+  // Guarded by swipeInProgressRef: a rapid second skip while the CSS slide from
+  // the FIRST skip is still animating must NOT re-freeze the centre. The CSS
+  // transform keeps interpolating along its original path regardless, so
+  // reassigning frozenCenterTrack/slideDir mid-flight would swap the window's
+  // content out from under the still-animating geometry — visible as a hard
+  // seam where two different tracks' backgrounds meet mid-slide. Skipping the
+  // re-freeze here leaves the outgoing (centre) track untouched; the new
+  // optimistic track still flows into the incoming (next/prev) slot normally.
+  const beginPendingSlide = useCallback((direction: SlideDirection) => {
+    if (swipeInProgressRef.current) return;
+    slideOldCurrentRef.current = currentTrackObjRef.current;
+    setFrozenCenterTrack(currentTrackObjRef.current);
+    setSlideDir(direction);
   }, []);
 
   // ── Close lyrics picker on track change ──────────────────────────────────
@@ -272,8 +305,9 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
     if (playback?.repeat_state === 'track') return;
     pendingDirectionRef.current = 'right';
     pendingTargetTrackIdRef.current = next.id;
+    beginPendingSlide('right');
     setOptimisticTrack(next);
-  }, [setOptimisticTrack, playback?.repeat_state]);
+  }, [setOptimisticTrack, playback?.repeat_state, beginPendingSlide]);
 
   // ── Playback sync (only for the active centre panel) ─────────────────────
   const { currentLineIndex, getInterpolatedMs, setOptimisticSeek } = usePlaybackSync(
@@ -297,11 +331,12 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
   const handleQueueSkipTo = useCallback((track: SpotifyTrack, skipsNeeded: number) => {
     pendingDirectionRef.current = 'right';
     pendingTargetTrackIdRef.current = track.id;
+    beginPendingSlide('right');
     setOptimisticTrack(track);
     skipMultiple(token.access_token, skipsNeeded).catch((e) => {
       showPlaybackError(e instanceof Error ? e.message : 'Could not skip to that track.');
     });
-  }, [token.access_token, setOptimisticTrack, showPlaybackError]);
+  }, [token.access_token, setOptimisticTrack, showPlaybackError, beginPendingSlide]);
 
   const handleSkipNext = useCallback(async () => {
     const next = nextTrackRef.current;
@@ -312,6 +347,10 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
       pendingQueueRef.current = pendingQueueRef.current.slice(1);
       pendingDirectionRef.current = 'right';
       pendingTargetTrackIdRef.current = next.id;
+      // Freeze the centre on the outgoing track in the SAME commit as the
+      // optimistic switch, so the keyed window never briefly re-centres the new
+      // track before the slide starts (which would remount the outgoing panel).
+      beginPendingSlide('right');
       setOptimisticTrack(next);
     } else {
       pendingDirectionRef.current = 'right';
@@ -320,7 +359,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
     try { await skipToNext(token.access_token); } catch (e) {
       showPlaybackError(e instanceof Error ? e.message : 'Could not skip to next track.');
     }
-  }, [token.access_token, setOptimisticTrack, showPlaybackError]);
+  }, [token.access_token, setOptimisticTrack, showPlaybackError, beginPendingSlide]);
 
   const handleSkipPrev = useCallback(async () => {
     pendingDirectionRef.current = 'left';
@@ -328,11 +367,14 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
     // triggers the track-change effect which starts the left slide immediately.
     const prev = prevTrackStateRef.current;
     pendingTargetTrackIdRef.current = prev?.id ?? null;
-    if (prev) setOptimisticTrack(prev);
+    if (prev) {
+      beginPendingSlide('left');
+      setOptimisticTrack(prev);
+    }
     try { await skipToPrevious(token.access_token); } catch (e) {
       showPlaybackError(e instanceof Error ? e.message : 'Could not skip to previous track.');
     }
-  }, [token.access_token, setOptimisticTrack, showPlaybackError]);
+  }, [token.access_token, setOptimisticTrack, showPlaybackError, beginPendingSlide]);
 
   // ── Swipe-initiated skip (called by SongCarousel when gesture commits) ────
   const handleSwipeCommit = useCallback((direction: SlideDirection) => {
@@ -340,6 +382,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
     lastSlideDirectionRef.current = direction;
     slideOldCurrentRef.current = currentTrackObjRef.current;
     setFrozenCenterTrack(currentTrackObjRef.current);
+    setSlideDir(direction);
 
     if (direction === 'right') {
       const next = nextTrackRef.current;
@@ -400,38 +443,83 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
         </div>
       ) : (
         <SongCarousel
-          prev={
-            <SongPanel
-              track={prevTrack}
-              lines={prevLyricsData.lines}
-              isSynced={prevLyricsData.isSynced}
-              lyricsStatus={prevLyricsData.status}
-              currentLineIndex={-1}
-              fontSize={settings.fontSize}
-            />
-          }
-          current={
-            <SongPanel
-              track={forceLoadingCenter ? null : (frozenCenterTrack ?? playback.track)}
-              lines={currentLyrics.lines}
-              isSynced={currentLyrics.isSynced}
-              lyricsStatus={currentLyrics.status}
-              currentLineIndex={currentLineIndex}
-              fontSize={settings.fontSize}
-              onSeek={handleSeek}
-              onRetry={retryLyrics}
-            />
-          }
-          next={
-            <SongPanel
-              track={nextTrackForLyrics}
-              lines={nextLyricsData.lines}
-              isSynced={nextLyricsData.isSynced}
-              lyricsStatus={nextLyricsData.status}
-              currentLineIndex={-1}
-              fontSize={settings.fontSize}
-            />
-          }
+          slots={((): [CarouselSlot, CarouselSlot, CarouselSlot] => {
+            // ── Build the render window [prev, centre, next] ──────────────────
+            // Keys are track ids, so React MOVES a panel's DOM (its decoded
+            // background <img> and rendered lyrics) as the window shifts, rather
+            // than rebuilding it in a fixed slot — which is what flashed.
+            //
+            // While a slide is in progress the centre shows the OUTGOING track
+            // (frozenCenterTrack), and the INCOMING track (playback.track — the
+            // song we optimistically skipped to, whose panel is already mounted
+            // as the preloaded next/prev slot) fills the slot it slides in from.
+            // That keeps the incoming panel's key stable from preloaded-slot →
+            // sliding-slot → centre, so it is never rebuilt. We deliberately do
+            // NOT use nextTrackForLyrics here: the discovery effect repurposes it
+            // as the *prefetch* look-ahead the instant the track changes.
+            const activeId = playback.track.id;
+            const outgoing = frozenCenterTrack;
+            const incoming = outgoing && playback.track.id !== outgoing.id ? playback.track : null;
+
+            let prevW: SpotifyTrack | null;
+            let centerW: SpotifyTrack | null;
+            let nextW: SpotifyTrack | null;
+            if (outgoing && slideDir === 'right') {
+              centerW = outgoing;
+              nextW = incoming; // same id as the pre-slide next slot → DOM preserved
+              prevW = null;
+            } else if (outgoing && slideDir === 'left') {
+              centerW = outgoing;
+              prevW = incoming; // same id as the pre-slide prev slot → DOM preserved
+              nextW = null;
+            } else {
+              centerW = forceLoadingCenter ? null : playback.track;
+              prevW = prevTrack && prevTrack.id !== centerW?.id ? prevTrack : null;
+              nextW =
+                nextTrackForLyrics &&
+                nextTrackForLyrics.id !== centerW?.id &&
+                nextTrackForLyrics.id !== prevW?.id
+                  ? nextTrackForLyrics
+                  : null;
+            }
+
+            // Resolve a window track's lyrics from whichever position-hook
+            // currently holds it, so content follows the *track* (not the slot)
+            // through a shift. Prev/next are checked before current so that at
+            // the exact frame playback.track flips, the incoming track still
+            // reads its already-loaded prefetch state instead of the current
+            // hook's not-yet-updated one — avoiding a one-frame lyric flicker.
+            const lyricsFor = (t: SpotifyTrack | null) => {
+              if (!t) return null;
+              if (t.id === nextTrackForLyrics?.id) return nextLyricsData;
+              if (t.id === prevTrack?.id) return prevLyricsData;
+              if (t.id === activeId) return currentLyrics;
+              return null;
+            };
+
+            const panel = (t: SpotifyTrack | null) => {
+              const ly = lyricsFor(t);
+              const active = t !== null && t.id === activeId;
+              return (
+                <SongPanel
+                  track={t}
+                  lines={ly?.lines ?? []}
+                  isSynced={ly?.isSynced ?? false}
+                  lyricsStatus={ly ? ly.status : t ? 'loading' : 'idle'}
+                  currentLineIndex={active ? currentLineIndex : -1}
+                  fontSize={settings.fontSize}
+                  onSeek={active ? handleSeek : undefined}
+                  onRetry={active ? retryLyrics : undefined}
+                />
+              );
+            };
+
+            return [
+              { key: prevW?.id ?? '__empty_prev', content: panel(prevW) },
+              { key: centerW?.id ?? '__empty_center', content: panel(centerW) },
+              { key: nextW?.id ?? '__empty_next', content: panel(nextW) },
+            ];
+          })()}
           slideDirection={programmaticSlide}
           onSlideComplete={handleSlideComplete}
           onSlideCommit={handleSwipeCommit}

@@ -33,7 +33,7 @@ function makeTrack(id: string, name: string, artist: string) {
     album: {
       id: `album-${id}`,
       name: `${name} Album`,
-      images: [{ url: 'https://example.com/art.jpg', height: 300, width: 300 }],
+      images: [{ url: `https://example.com/art-${id}.jpg`, height: 300, width: 300 }],
     },
   };
 }
@@ -115,6 +115,18 @@ async function setupMocks(page: Page): Promise<{ skipCalled: () => boolean }> {
   });
   await page.route('**/api.spotify.com/v1/me/player/seek**', async (route: Route) => {
     await route.fulfill({ status: 204, body: '' });
+  });
+
+  // Album art — serve a tiny valid PNG so the browser can actually decode & fade it.
+  await page.route('**/art-*.jpg', async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+        'base64',
+      ),
+    });
   });
 
   return { skipCalled: () => skipCalled };
@@ -210,5 +222,21 @@ test.describe('Next-song transition', () => {
     // Track Alpha's title must not be shown — we're on Track Beta.
     await expect(trackTitle(page, 'Track Alpha')).not.toBeVisible();
     await expect(trackTitle(page, 'Track Beta')).toBeVisible();
+  });
+
+  test('shows the next song backdrop after switching (no lost background)', async ({ page }) => {
+    await setupMocks(page);
+    await bootApp(page);
+
+    await expect(trackTitle(page, 'Track Alpha')).toBeVisible({ timeout: 15_000 });
+    // Track Alpha's blurred backdrop is rendered.
+    await expect(page.locator('img[src*="art-track-alpha.jpg"]').first()).toBeVisible({ timeout: 5_000 });
+
+    await page.getByRole('button', { name: 'Next track' }).click();
+    await expect(trackTitle(page, 'Track Beta')).toBeVisible({ timeout: 800 });
+
+    // The new song's backdrop is present after the transition — the fix keeps an
+    // album-art <img> painted across the switch instead of blanking to black.
+    await expect(page.locator('img[src*="art-track-beta.jpg"]').first()).toBeVisible({ timeout: 5_000 });
   });
 });

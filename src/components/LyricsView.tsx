@@ -90,7 +90,15 @@ export function LyricsView({
     }
     const el = lineRefs.current[currentLineIndex];
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Container-scoped, vertical-only scroll — NOT el.scrollIntoView(), which scrolls
+    // every scrollable ancestor on both axes. The carousel wrapper is horizontally
+    // scrollable (its track overflows to 300vw), so scrollIntoView would drag it via
+    // scrollLeft to reveal a wide (1.45x-scaled) line, shifting the whole panel and
+    // exposing the neighbouring panel underneath.
+    const cRect = container.getBoundingClientRect();
+    const eRect = el.getBoundingClientRect();
+    const delta = (eRect.top + eRect.height / 2) - (cRect.top + cRect.height / 2);
+    container.scrollTo({ top: container.scrollTop + delta, behavior: 'smooth' });
   // NOTE: trackId is intentionally NOT in this dep array — see usePlaybackSync.
   }, [currentLineIndex, isSynced]);
 

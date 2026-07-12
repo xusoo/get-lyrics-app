@@ -4,10 +4,21 @@ import type { ReactNode } from 'react';
 
 export type SlideDirection = 'left' | 'right';
 
+/**
+ * One carousel slot. `key` is the React key that lets a panel's DOM (its
+ * already-decoded background <img> and rendered lyrics) be *preserved and moved*
+ * when the window shifts, instead of being rebuilt in a fixed slot — which is
+ * what caused the background to flash on song change. Keys are track ids (or a
+ * stable placeholder for an empty edge slot).
+ */
+export interface CarouselSlot {
+  key: string;
+  content: ReactNode;
+}
+
 interface SongCarouselProps {
-  prev: ReactNode;
-  current: ReactNode;
-  next: ReactNode;
+  /** Exactly three slots, ordered [prev, current, next]. Keyed by track id. */
+  slots: [CarouselSlot, CarouselSlot, CarouselSlot];
   /**
    * When set to 'left' or 'right', triggers a programmatic CSS-animated slide.
    * MainView resets this to null via onSlideComplete.
@@ -15,7 +26,9 @@ interface SongCarouselProps {
   slideDirection: SlideDirection | null;
   /**
    * Called (via flushSync) when any slide animation finishes so MainView can
-   * rearrange the three slot tracks before the transform is reset.
+   * rearrange the three slot tracks before the transform is reset. Because the
+   * slots are keyed, React moves the surviving panels' DOM rather than
+   * re-rendering their content — so the reshuffle is invisible and flash-free.
    */
   onSlideComplete: () => void;
   /**
@@ -35,9 +48,7 @@ const TO_PREV = 'translateX(0vw)';
 const TO_NEXT = 'translateX(-200vw)';
 
 export function SongCarousel({
-  prev,
-  current,
-  next,
+  slots,
   slideDirection,
   onSlideComplete,
   onSlideCommit,
@@ -184,16 +195,21 @@ export function SongCarousel({
     };
   }, []); // stable — all mutable state lives in refs
 
+  // overflow-clip (not overflow-hidden): clips the 300vw track identically but
+  // establishes NO scroll container, so nothing (scrollIntoView, focus-scroll,
+  // scroll anchoring) can ever set scrollLeft here and displace the carousel.
   return (
-    <div className="flex-1 overflow-hidden relative min-h-0 h-full">
+    <div className="flex-1 overflow-clip relative min-h-0 h-full">
       <div
         ref={trackRef}
         className="flex h-full"
         style={{ width: '300vw', transform: CENTER, willChange: 'transform' }}
       >
-        <div className="h-full min-h-0 flex-shrink-0" style={{ width: '100vw' }}>{prev}</div>
-        <div className="h-full min-h-0 flex-shrink-0" style={{ width: '100vw' }}>{current}</div>
-        <div className="h-full min-h-0 flex-shrink-0" style={{ width: '100vw' }}>{next}</div>
+        {slots.map((slot) => (
+          <div key={slot.key} className="h-full min-h-0 flex-shrink-0" style={{ width: '100vw' }}>
+            {slot.content}
+          </div>
+        ))}
       </div>
     </div>
   );

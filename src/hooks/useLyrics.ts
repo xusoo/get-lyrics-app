@@ -52,7 +52,7 @@ export function useLyrics(track: SpotifyTrack | null, role: FetchPriority | 'pas
     // Render immediately with no network call.
     const persisted = getFromStore(track.id);
     if (persisted) {
-        console.log(`💾 [LRCLIB] Cache hit  "${track.name}" by ${artistName}  (${role})`);
+      console.log(`💾 [LRCLIB] Cache hit  "${track.name}" by ${artistName}  (${role})`);
       const saved = getCandidates(track.id);
       setState({ ...BLANK, ...persisted, candidates: saved?.candidates ?? [], pickerQuery: saved?.query ?? defaultQuery, recommendedId: saved?.recommendedId ?? null, selectedId: saved?.selectedId ?? persisted.selectedId });
       return;

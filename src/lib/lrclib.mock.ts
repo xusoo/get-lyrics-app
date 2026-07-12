@@ -42,7 +42,7 @@ export const MOCK_SYNCED_LYRICS = [
 
 export function mockDelay(label: string, signal?: AbortSignal): Promise<void> {
   const id = ++mockRequestCounter;
-  const ms = Math.round(Math.random() * 3_000 + 2_000);
+  const ms = 1_000 //Math.round(Math.random() * 3_000 + 2_000);
   const start = Date.now();
   mockLog(id, 'start', label, `(≈${(ms / 1_000).toFixed(1)} s)`);
   return new Promise((resolve, reject) => {
