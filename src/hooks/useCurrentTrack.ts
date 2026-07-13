@@ -14,10 +14,10 @@ export function useCurrentTrack(token: TokenData | null) {
   const consecutiveErrors = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const pollSeqRef = useRef(0);
-  // rejectId: the track we just left — block it from re-entering via stale polls.
+  // rejectIds: tracks we just left or skipped over — block them from re-entering via stale polls.
   // acceptId: the optimistic track we expect Spotify to confirm.
   // until: hard expiry so we never block forever.
-  const optimisticGuardRef = useRef<{ rejectId: string; acceptId: string; until: number } | null>(null);
+  const optimisticGuardRef = useRef<{ rejectIds: string[]; acceptId: string; until: number } | null>(null);
   const playbackRef = useRef<PlaybackState | null>(null);
 
   const poll = useCallback(async () => {
@@ -43,7 +43,7 @@ export function useCurrentTrack(token: TokenData | null) {
       const polledId = data?.item?.id ?? null;
       if (guard) {
         if (performance.now() < guard.until) {
-          if (polledId === guard.rejectId) return; // still returning old track — ignore
+          if (polledId && guard.rejectIds.includes(polledId)) return; // still returning a transient track — ignore
           if (polledId === guard.acceptId) optimisticGuardRef.current = null; // confirmed ✓
         } else {
           optimisticGuardRef.current = null; // hard expiry — stop guarding
@@ -101,17 +101,31 @@ export function useCurrentTrack(token: TokenData | null) {
     };
   }, [token, poll]);
 
-  /** Optimistically switch to a known next track without waiting for the poll. */
-  const setOptimisticTrack = useCallback((track: SpotifyTrack) => {
+  /**
+   * Optimistically switch to a known next track without waiting for the poll.
+   * `alsoRejectIds` names tracks Spotify may transiently report while a
+   * multi-track skip propagates (e.g. tracks skipped over) — these are
+   * blocked from re-entering via stale polls just like the old track.
+   */
+  const setOptimisticTrack = useCallback((track: SpotifyTrack, alsoRejectIds?: string[]) => {
     const oldId = playbackRef.current?.track.id;
-    if (oldId && oldId !== track.id) {
-      // Block polls that still return the old track for up to 8 s.
+    const prevGuard = optimisticGuardRef.current;
+    const stillActive = !!prevGuard && performance.now() < prevGuard.until;
+    const rejectIds = new Set<string>(stillActive ? prevGuard!.rejectIds : []);
+    if (oldId) rejectIds.add(oldId);
+    for (const id of alsoRejectIds ?? []) rejectIds.add(id);
+    rejectIds.delete(track.id); // never reject the track we're switching to
+
+    if (rejectIds.size > 0) {
+      // Block polls that still return a transient track for up to 8 s.
       // Only cleared when Spotify confirms the new track or the window expires.
       optimisticGuardRef.current = {
-        rejectId: oldId,
+        rejectIds: Array.from(rejectIds),
         acceptId: track.id,
         until: performance.now() + 8000,
       };
+    } else {
+      optimisticGuardRef.current = null;
     }
     const next: PlaybackState = {
       track,

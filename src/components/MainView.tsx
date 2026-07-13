@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LyricsPicker } from './LyricsPicker';
 import { MiniPlayer } from './MiniPlayer';
-import { QueuePanel } from './QueuePanel';
+import { QueuePanel, type QueueSkipContext } from './QueuePanel';
 import { SettingsBar } from './SettingsBar';
 import { SettingsPanel } from './SettingsPanel';
 import { SongCarousel } from './SongCarousel';
@@ -110,26 +110,39 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
   // Spotify. Consumed synchronously by skip handlers so rapid consecutive clicks
   // get an optimistic update without waiting for a new getNextInQueue call.
   const pendingQueueRef = useRef<SpotifyTrack[]>([]);
+  // Set synchronously by handleQueueSkipTo when it seeds nextTrackRef/pendingQueueRef
+  // from the queue panel's already-known data. While targetId matches the current
+  // track, the discovery effect below trusts that seed over a naive reset/promote
+  // and won't let a lagged getNextInQueue response (still containing a
+  // skipped-over track) overwrite it — only a clean response clears the guard.
+  const authoritativeNextRef = useRef<{ targetId: string; skippedOverIds: string[] } | null>(null);
   useEffect(() => {
     if (!playback) {
       nextTrackRef.current = null;
       pendingQueueRef.current = [];
+      authoritativeNextRef.current = null;
       return;
     }
 
     const currentTrackId = playback.track.id;
+    const seeded = authoritativeNextRef.current?.targetId === currentTrackId;
 
-    // Natural advancement: promote the pre-fetched look-ahead immediately so the
-    // skip button has a target before getNextInQueue responds.
-    if (nextTrackRef.current?.id === currentTrackId) {
-      nextTrackRef.current = pendingQueueRef.current[0] ?? null;
-      pendingQueueRef.current = pendingQueueRef.current.slice(1);
-      setNextTrackForLyrics(nextTrackRef.current);
+    if (seeded) {
+      // Keep the seed as-is; tryDiscoverNext below confirms or retries against it.
     } else {
-      // Unexpected track (shuffle, prev, external skip) — stale look-ahead.
-      nextTrackRef.current = null;
-      pendingQueueRef.current = [];
-      setNextTrackForLyrics(null);
+      authoritativeNextRef.current = null;
+      // Natural advancement: promote the pre-fetched look-ahead immediately so the
+      // skip button has a target before getNextInQueue responds.
+      if (nextTrackRef.current?.id === currentTrackId) {
+        nextTrackRef.current = pendingQueueRef.current[0] ?? null;
+        pendingQueueRef.current = pendingQueueRef.current.slice(1);
+        setNextTrackForLyrics(nextTrackRef.current);
+      } else {
+        // Unexpected track (shuffle, prev, external skip) — stale look-ahead.
+        nextTrackRef.current = null;
+        pendingQueueRef.current = [];
+        setNextTrackForLyrics(null);
+      }
     }
 
     const ac = new AbortController();
@@ -141,6 +154,22 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
           if (ac.signal.aborted) return;
           // Guard against Spotify including the current track in the queue.
           const upcoming = queue.filter((t) => t.id !== currentTrackId);
+
+          const authoritative = authoritativeNextRef.current;
+          if (authoritative && authoritative.targetId === currentTrackId) {
+            // Spotify's queue can lag a multi-track skip by several seconds and
+            // keep reporting tracks we just skipped over. Treat that as stale
+            // and retry rather than clobbering the seeded look-ahead.
+            const isStale = upcoming.some((t) => authoritative.skippedOverIds.includes(t.id));
+            if (isStale) {
+              if (attempt < 3) {
+                retryTimer = setTimeout(() => tryDiscoverNext(attempt + 1), 1500);
+              }
+              return;
+            }
+            authoritativeNextRef.current = null; // clean queue confirms the seed
+          }
+
           if (upcoming.length === 0) {
             nextTrackRef.current = null;
             pendingQueueRef.current = [];
@@ -176,10 +205,16 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
 
     if (!oldTrack || !newTrack || oldTrack.id === newTrack.id) return;
 
+    // A queue-panel jump already seeded the correct "previous" (the real
+    // immediate predecessor, which may be several positions behind oldTrack
+    // when 2+ tracks were skipped) — don't let the generic oldTrack fallback
+    // below clobber it.
+    const prevAlreadySeeded = authoritativeNextRef.current?.targetId === newTrack.id;
+
     if (swipeInProgressRef.current) {
       // The carousel animation was already started by the touch gesture.
       // For right swipes we still need to update the prev slot immediately.
-      if (lastSlideDirectionRef.current === 'right') {
+      if (lastSlideDirectionRef.current === 'right' && !prevAlreadySeeded) {
         prevTrackStateRef.current = oldTrack;
         setPrevTrack(oldTrack);
       }
@@ -197,7 +232,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
       slideOldCurrentRef.current = oldTrack;
       setFrozenCenterTrack(oldTrack);
       setSlideDir(pendingDir);
-      if (pendingDir === 'right') {
+      if (pendingDir === 'right' && !prevAlreadySeeded) {
         prevTrackStateRef.current = oldTrack;
         setPrevTrack(oldTrack);
       }
@@ -328,11 +363,24 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
   // ── Skip handlers ─────────────────────────────────────────────────────────
 
   // Queue panel: optimistically update + slide before the API responds
-  const handleQueueSkipTo = useCallback((track: SpotifyTrack, skipsNeeded: number) => {
+  const handleQueueSkipTo = useCallback((track: SpotifyTrack, skipsNeeded: number, context: QueueSkipContext) => {
     pendingDirectionRef.current = 'right';
     pendingTargetTrackIdRef.current = track.id;
     beginPendingSlide('right');
-    setOptimisticTrack(track);
+    // Seed the look-ahead from the queue panel's already-known queue so a
+    // lagged getNextInQueue response can't poison "next" with a skipped-over
+    // track; the discovery effect trusts this until a clean response confirms it.
+    nextTrackRef.current = context.upcomingAfter[0] ?? null;
+    pendingQueueRef.current = context.upcomingAfter.slice(1);
+    setNextTrackForLyrics(nextTrackRef.current);
+    // Seed "previous" with the real immediate predecessor too — skipping 2+
+    // tracks at once means the track that was playing before this jump is 2+
+    // positions back, not 1, so it's the wrong target for a "previous" tap.
+    // The track-change effect below must not overwrite this with oldTrack.
+    prevTrackStateRef.current = context.immediatePrev;
+    setPrevTrack(context.immediatePrev);
+    authoritativeNextRef.current = { targetId: track.id, skippedOverIds: context.skippedOverIds };
+    setOptimisticTrack(track, context.skippedOverIds);
     skipMultiple(token.access_token, skipsNeeded).catch((e) => {
       showPlaybackError(e instanceof Error ? e.message : 'Could not skip to that track.');
     });

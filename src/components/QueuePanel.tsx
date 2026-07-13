@@ -9,12 +9,26 @@ interface QueueEntry {
   skipsNeeded: number;
 }
 
+export interface QueueSkipContext {
+  /** Tracks between the previous skip target and this one — transiently visible during propagation. */
+  skippedOverIds: string[];
+  /** Tracks known (from the already-fetched queue) to follow the skip target. */
+  upcomingAfter: SpotifyTrack[];
+  /**
+   * The track immediately preceding the target in the real queue order — i.e.
+   * the track a "previous" tap should land on. Note this is NOT necessarily
+   * the track that was playing when the tap happened: skipping 2+ tracks at
+   * once means that track is 2+ positions back, not 1.
+   */
+  immediatePrev: SpotifyTrack | null;
+}
+
 interface QueuePanelProps {
   isOpen: boolean;
   accessToken: string;
   currentTrackId: string | null;
   onClose: () => void;
-  onSkipTo: (track: SpotifyTrack, skipsNeeded: number) => void;
+  onSkipTo: (track: SpotifyTrack, skipsNeeded: number, context: QueueSkipContext) => void;
 }
 
 function formatDuration(ms: number): string {
@@ -80,7 +94,22 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
     // Rows stay in place (dimmed instead of removed); onSkipTo still needs the
     // *incremental* skip count relative to whatever was last marked current,
     // since it maps directly to a batch of sequential "next" calls.
-    const relativeSkip = skipsNeeded - (pendingSkip?.skipsNeeded ?? 0);
+    const baseline = pendingSkip?.skipsNeeded ?? 0;
+    const relativeSkip = skipsNeeded - baseline;
+    // Everything strictly between the last-known-current and the new target is
+    // being skipped over — Spotify may transiently report these mid-skip.
+    const skippedOverIds = entries
+      .filter((e) => e.skipsNeeded > baseline && e.skipsNeeded < skipsNeeded)
+      .map((e) => e.track.id);
+    // Already-fetched entries known to follow the target — seeds the look-ahead
+    // instantly instead of waiting on a (possibly lagged) getNextInQueue call.
+    const upcomingAfter = entries
+      .filter((e) => e.skipsNeeded > skipsNeeded)
+      .map((e) => e.track);
+    // The real immediate predecessor is always at skipsNeeded - 1 (an absolute
+    // position from the actual currently-playing track), regardless of any
+    // earlier pending tap — unlike skippedOverIds, it needs no baseline.
+    const immediatePrev = entries.find((e) => e.skipsNeeded === skipsNeeded - 1)?.track ?? null;
     setPendingSkip({ trackId: track.id, skipsNeeded });
     // Spotify needs time to process the skip before getQueue is accurate.
     if (delayedRefreshRef.current) clearTimeout(delayedRefreshRef.current);
@@ -88,7 +117,7 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
       delayedRefreshRef.current = null;
       void refresh();
     }, 2500);
-    onSkipTo(track, relativeSkip);
+    onSkipTo(track, relativeSkip, { skippedOverIds, upcomingAfter, immediatePrev });
   }
 
   if (!isOpen) return null;
