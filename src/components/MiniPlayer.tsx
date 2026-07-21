@@ -43,26 +43,57 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
   // Direct DOM refs for progress — updated via rAF, no React state
   const trackRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLDivElement>(null);
   const elapsedRef = useRef<HTMLSpanElement>(null);
   const rafRef = useRef<number | null>(null);
+  // While dragging, the rAF loop stops driving the visual — the pointer does instead
+  const draggingRef = useRef(false);
+
+  function updateVisual(ms: number) {
+    const pct = Math.min(Math.max(ms / track.duration_ms, 0), 1) * 100;
+    if (barRef.current) barRef.current.style.width = `${pct}%`;
+    if (thumbRef.current) thumbRef.current.style.left = `${pct}%`;
+    if (elapsedRef.current) elapsedRef.current.textContent = formatTime(ms);
+  }
 
   useEffect(() => {
     function tick() {
-      const ms = getInterpolatedMs();
-      const pct = Math.min(ms / track.duration_ms, 1) * 100;
-      if (barRef.current) barRef.current.style.width = `${pct}%`;
-      if (elapsedRef.current) elapsedRef.current.textContent = formatTime(ms);
+      if (!draggingRef.current) updateVisual(getInterpolatedMs());
       rafRef.current = requestAnimationFrame(tick);
     }
     rafRef.current = requestAnimationFrame(tick);
     return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track.duration_ms, getInterpolatedMs]);
 
-  function handleSeek(e: React.MouseEvent<HTMLDivElement>) {
-    if (!trackRef.current) return;
+  function ratioFromClientX(clientX: number): number {
+    if (!trackRef.current) return 0;
     const rect = trackRef.current.getBoundingClientRect();
-    const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-    onSeek(ratio * track.duration_ms);
+    return Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+    if (thumbRef.current) thumbRef.current.style.opacity = '1';
+    updateVisual(ratioFromClientX(e.clientX) * track.duration_ms);
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) return;
+    updateVisual(ratioFromClientX(e.clientX) * track.duration_ms);
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (thumbRef.current) thumbRef.current.style.opacity = '';
+    onSeek(ratioFromClientX(e.clientX) * track.duration_ms);
+  }
+
+  function handlePointerCancel() {
+    draggingRef.current = false;
+    if (thumbRef.current) thumbRef.current.style.opacity = '';
   }
 
   async function handleToggle() {
@@ -95,14 +126,22 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
         <div className="w-full max-w-xl mb-2">
           <div
             ref={trackRef}
-            className="py-2 -my-2 cursor-pointer"
-            onClick={handleSeek}
+            className="group relative py-2 -my-2 cursor-grab active:cursor-grabbing touch-none"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
             aria-label="Seek"
             role="slider"
           >
             <div className="h-1 rounded-full bg-white/20 overflow-hidden">
               <div ref={barRef} className="h-full rounded-full bg-white/80 w-0" />
             </div>
+            <div
+              ref={thumbRef}
+              className="absolute top-1/2 w-3 h-3 rounded-full bg-white shadow -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+              style={{ left: '0%' }}
+            />
           </div>
           <div className="flex justify-between text-xs text-white/45 mt-1 tabular-nums">
             <span ref={elapsedRef}>0:00</span>
