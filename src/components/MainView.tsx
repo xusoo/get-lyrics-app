@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LyricsPicker } from './LyricsPicker';
 import { MiniPlayer } from './MiniPlayer';
+import { NextPlayingPopup } from './NextPlayingPopup';
 import { QueuePanel } from './QueuePanel';
 import { SettingsBar } from './SettingsBar';
 import { SettingsPanel } from './SettingsPanel';
@@ -438,6 +439,16 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
           onToggleQueue={() => setQueuePanelOpen((o) => !o)}
           onSeek={handleSeek}
           onPlaybackError={showPlaybackError}
+        />
+      )}
+
+      {playback && (
+        <NextPlayingPopup
+          playback={playback}
+          nextTrack={nextTrackForLyrics}
+          getInterpolatedMs={getInterpolatedMs}
+          onSkip={handleSkipNext}
+          suppressed={queuePanelOpen}
         />
       )}
 

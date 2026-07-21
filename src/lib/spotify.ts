@@ -302,7 +302,9 @@ async function spotifyFetch(
 
 export async function getCurrentlyPlaying(accessToken: string, signal?: AbortSignal): Promise<CurrentlyPlayingResponse | null> {
   const res = await spotifyFetch(
-    'https://api.spotify.com/v1/me/player/currently-playing?additional_types=track',
+    // /v1/me/player is a superset of /currently-playing (also returns repeat_state)
+    // using the same scope already requested, so no extra request or scope needed.
+    'https://api.spotify.com/v1/me/player?additional_types=track',
     accessToken,
     { signal },
   );

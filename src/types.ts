@@ -28,6 +28,7 @@ export interface PlaybackState {
   progress_ms: number;
   is_playing: boolean;
   timestamp: number; // local performance.now() at the time of the poll
+  repeatState: 'off' | 'context' | 'track';
 }
 
 export interface LyricLine {
@@ -58,4 +59,5 @@ export interface CurrentlyPlayingResponse {
   progress_ms: number | null;
   is_playing: boolean;
   currently_playing_type: string;
+  repeat_state?: 'off' | 'context' | 'track'; // only present on /v1/me/player
 }
