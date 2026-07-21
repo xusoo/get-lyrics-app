@@ -66,7 +66,7 @@ export function NextPlayingPopup({ playback, nextTrack, getInterpolatedMs, onSki
   return (
     <div
       className={[
-        'fixed bottom-[104px] right-4 z-20 w-64 transition-all duration-300 ease-out',
+        'fixed bottom-[130px] right-4 z-40 w-64 transition-all duration-300 ease-out',
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
       ].join(' ')}
       aria-hidden={!visible}
