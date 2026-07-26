@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Rewind, FastForward, Trash2, ChevronDown } from 'lucide-react';
-import type { Settings, SpotifyUser } from '../types';
+import type { MiniPlayerLayout, Settings, SpotifyUser } from '../types';
 import { getCacheStats } from '../lib/lyrics-store';
 import {
   getResolvedAuthConfig,
@@ -30,6 +30,8 @@ interface SettingsPanelProps {
   onResetDefaultOffset: () => void;
   onSetBackgroundBlur: (blur: number) => void;
   onSetBackgroundDim: (dim: number) => void;
+  onSetMiniPlayerLayout: (layout: MiniPlayerLayout) => void;
+  onSetMiniPlayerFlipped: (flipped: boolean) => void;
   onSetCacheMaxTTL: (ttl: number) => void;
   onSetCacheMaxEntries: (entries: number) => void;
   onClearCache: () => void;
@@ -125,6 +127,8 @@ export function SettingsPanel({
   onResetDefaultOffset,
   onSetBackgroundBlur,
   onSetBackgroundDim,
+  onSetMiniPlayerLayout,
+  onSetMiniPlayerFlipped,
   onSetCacheMaxTTL,
   onSetCacheMaxEntries,
   onClearCache,
@@ -288,6 +292,40 @@ export function SettingsPanel({
             >
               Reset display settings
             </button>
+          </Section>
+
+          {/* Miniplayer Section */}
+          <Section title="Miniplayer">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-white/60 text-sm">Layout</span>
+              <div className="flex items-center rounded-lg overflow-hidden border border-white/10">
+                {(['centered', 'split'] as const).map((layout) => (
+                  <button
+                    key={layout}
+                    onClick={() => onSetMiniPlayerLayout(layout)}
+                    aria-pressed={settings.miniPlayerLayout === layout}
+                    className={[
+                      'px-3 py-1.5 text-sm capitalize transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60',
+                      settings.miniPlayerLayout === layout
+                        ? 'bg-white/20 text-white'
+                        : 'text-white/60 hover:bg-white/10',
+                    ].join(' ')}
+                  >
+                    {layout}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="inline-flex items-center gap-2 text-white/70 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.miniPlayerFlipped}
+                onChange={(e) => onSetMiniPlayerFlipped(e.target.checked)}
+                className="accent-white"
+              />
+              Flip layout (mirror controls and song info)
+            </label>
           </Section>
 
           {/* Sync Section */}

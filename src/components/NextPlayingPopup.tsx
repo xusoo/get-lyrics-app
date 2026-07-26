@@ -12,11 +12,13 @@ interface NextPlayingPopupProps {
   nextTrack: SpotifyTrack | null;
   getInterpolatedMs: () => number;
   onSkip: () => void;
-  /** Suppress display while another bottom-right overlay (queue panel) is open. */
+  /** Suppress display while another bottom-corner overlay (queue panel) is open. */
   suppressed?: boolean;
+  /** Anchor to the bottom-left instead of the default bottom-right. */
+  anchorLeft?: boolean;
 }
 
-export function NextPlayingPopup({ playback, nextTrack, getInterpolatedMs, onSkip, suppressed }: NextPlayingPopupProps) {
+export function NextPlayingPopup({ playback, nextTrack, getInterpolatedMs, onSkip, suppressed, anchorLeft }: NextPlayingPopupProps) {
   const [visible, setVisible] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -66,7 +68,8 @@ export function NextPlayingPopup({ playback, nextTrack, getInterpolatedMs, onSki
   return (
     <div
       className={[
-        'fixed bottom-[130px] right-4 z-40 w-64 transition-all duration-300 ease-out',
+        'fixed bottom-[130px] z-40 w-64 transition-all duration-300 ease-out',
+        anchorLeft ? 'left-4' : 'right-4',
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
       ].join(' ')}
       aria-hidden={!visible}

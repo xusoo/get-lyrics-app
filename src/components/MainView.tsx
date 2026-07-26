@@ -36,6 +36,8 @@ export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSp
     setUIFontSize,
     setBackgroundBlur,
     setBackgroundDim,
+    setMiniPlayerLayout,
+    setMiniPlayerFlipped,
     setCacheMaxTTL,
     setCacheMaxEntries,
     clearCache,
@@ -479,6 +481,7 @@ export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSp
         onResetOffset={perSongOffset.reset}
         onOpenSettings={() => setSettingsPanelOpen(true)}
         onOpenPicker={openPicker}
+        flipped={settings.miniPlayerFlipped}
       />
 
       {loading ? (
@@ -602,6 +605,8 @@ export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSp
         onResetDefaultOffset={resetDefaultOffset}
         onSetBackgroundBlur={setBackgroundBlur}
         onSetBackgroundDim={setBackgroundDim}
+        onSetMiniPlayerLayout={setMiniPlayerLayout}
+        onSetMiniPlayerFlipped={setMiniPlayerFlipped}
         onSetCacheMaxTTL={setCacheMaxTTL}
         onSetCacheMaxEntries={setCacheMaxEntries}
         onClearCache={clearCache}
@@ -621,6 +626,8 @@ export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSp
           onToggleQueue={() => setQueuePanelOpen((o) => !o)}
           onSeek={handleSeek}
           onPlaybackError={showPlaybackError}
+          layout={settings.miniPlayerLayout}
+          flipped={settings.miniPlayerFlipped}
         />
       )}
 
@@ -631,6 +638,7 @@ export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSp
           getInterpolatedMs={getInterpolatedMs}
           onSkip={handleSkipNext}
           suppressed={queuePanelOpen}
+          anchorLeft={settings.miniPlayerFlipped}
         />
       )}
 
@@ -643,6 +651,7 @@ export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSp
         pendingQueueRef={pendingQueueRef}
         onClose={() => setQueuePanelOpen(false)}
         onSkipTo={handleQueueSkipTo}
+        anchorLeft={settings.miniPlayerFlipped}
       />
     </div>
   );

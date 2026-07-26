@@ -38,6 +38,8 @@ interface QueuePanelProps {
   pendingQueueRef: RefObject<SpotifyTrack[]>;
   onClose: () => void;
   onSkipTo: (track: SpotifyTrack, skipsNeeded: number, context: QueueSkipContext) => void;
+  /** Anchor to the bottom-left instead of the default bottom-right. */
+  anchorLeft?: boolean;
 }
 
 function formatDuration(ms: number): string {
@@ -127,7 +129,7 @@ function QueueRow({ entry, isOptimisticCurrent, isDimmed, isDisabled, onClick, i
   );
 }
 
-export function QueuePanel({ isOpen, accessToken, currentTrackId, seedCurrentTrack, nextTrackRef, pendingQueueRef, onClose, onSkipTo }: QueuePanelProps) {
+export function QueuePanel({ isOpen, accessToken, currentTrackId, seedCurrentTrack, nextTrackRef, pendingQueueRef, onClose, onSkipTo, anchorLeft }: QueuePanelProps) {
   const [entries, setEntries] = useState<QueueEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingSkip, setPendingSkip] = useState<{ trackId: string; skipsNeeded: number } | null>(null);
@@ -284,7 +286,10 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, seedCurrentTra
       onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
     >
     <div
-      className="absolute bottom-[130px] right-4 w-72 max-h-[55vh] flex flex-col rounded-2xl bg-black/85 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden"
+      className={[
+        'absolute bottom-[130px] w-72 max-h-[55vh] flex flex-col rounded-2xl bg-black/85 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden',
+        anchorLeft ? 'left-4' : 'right-4',
+      ].join(' ')}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header */}
