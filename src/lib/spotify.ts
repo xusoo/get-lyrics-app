@@ -1,4 +1,4 @@
-import type { CurrentlyPlayingResponse, SpotifyTrack, TokenData } from '../types';
+import type { CurrentlyPlayingResponse, SpotifyTrack, SpotifyUser, TokenData } from '../types';
 
 const RUNTIME_AUTH_CONFIG_KEY = 'spotify_auth_config';
 
@@ -17,6 +17,8 @@ const SCOPES = [
   'user-read-currently-playing',
   'user-read-playback-state',
   'user-modify-playback-state',
+  'user-read-email',
+  'user-read-private',
 ].join(' ');
 
 const TOKEN_KEY = 'spotify_token';
@@ -311,6 +313,12 @@ export async function getCurrentlyPlaying(accessToken: string, signal?: AbortSig
   const json = await res.json() as CurrentlyPlayingResponse;
   if (!json || json.currently_playing_type !== 'track' || !json.item) return null;
   return json;
+}
+
+export async function getCurrentUserProfile(accessToken: string, signal?: AbortSignal): Promise<SpotifyUser> {
+  const res = await spotifyFetch('https://api.spotify.com/v1/me', accessToken, { signal });
+  if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
+  return res.json() as Promise<SpotifyUser>;
 }
 
 function checkPlaybackResponse(res: Response): void {

@@ -13,18 +13,19 @@ import { usePlaybackSync } from '../hooks/usePlaybackSync';
 import { useSettings } from '../hooks/useSettings';
 import { usePerSongOffset } from '../hooks/usePerSongOffset';
 import { getNextInQueue, skipToNext, skipToPrevious, skipMultiple, seekTo } from '../lib/spotify';
-import type { TokenData, SpotifyTrack } from '../types';
+import type { TokenData, SpotifyTrack, SpotifyUser } from '../types';
 import type { SlideDirection, CarouselSlot } from './SongCarousel';
 import { Music2 } from 'lucide-react';
 
 interface MainViewProps {
   token: TokenData;
+  user: SpotifyUser | null;
   onLogout: () => void;
   onForgetSpotifySetup: () => void;
   onSaveSpotifySetup: (clientId: string, redirectUri?: string) => void;
 }
 
-export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifySetup }: MainViewProps) {
+export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSpotifySetup }: MainViewProps) {
   const {
     settings,
     increaseFontSize,
@@ -591,6 +592,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
       <SettingsPanel
         isOpen={settingsPanelOpen}
         settings={settings}
+        user={user}
         onClose={() => setSettingsPanelOpen(false)}
         onSetUIFontSize={setUIFontSize}
         onIncreaseLyricsFontSize={increaseFontSize}

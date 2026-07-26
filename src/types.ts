@@ -63,3 +63,10 @@ export interface CurrentlyPlayingResponse {
   currently_playing_type: string;
   repeat_state?: RepeatState;
 }
+
+export interface SpotifyUser {
+  id: string;
+  display_name: string | null;
+  email?: string;
+  images?: SpotifyImage[];
+}

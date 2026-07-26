@@ -4,6 +4,7 @@ import {
   clearRuntimeAuthConfig,
   clearToken,
   exchangeCode,
+  getCurrentUserProfile,
   getResolvedAuthConfig,
   getRuntimeAuthDraft,
   isTokenExpired,
@@ -13,7 +14,7 @@ import {
   saveRuntimeAuthConfig,
   saveToken,
 } from '../lib/spotify';
-import type { TokenData } from '../types';
+import type { SpotifyUser, TokenData } from '../types';
 
 // StrictMode double-mount guard: only allow one exchange at a time per page load.
 let exchangeInFlight = false;
@@ -22,8 +23,22 @@ export function useSpotifyAuth() {
   const [token, setToken] = useState<TokenData | null>(() => loadToken());
   const [error, setError] = useState<string | null>(null);
   const [isConfigured, setIsConfigured] = useState<boolean>(() => getResolvedAuthConfig() !== null);
+  const [user, setUser] = useState<SpotifyUser | null>(null);
   const tokenRef = useRef(token);
   tokenRef.current = token;
+
+  // Fetch the logged-in user's profile whenever we get a (new) token.
+  useEffect(() => {
+    if (!token) {
+      setUser(null);
+      return;
+    }
+    const ac = new AbortController();
+    getCurrentUserProfile(token.access_token, ac.signal)
+      .then(setUser)
+      .catch(() => {}); // non-critical — settings panel just won't show account details
+    return () => ac.abort();
+  }, [token]);
 
   const refreshConfigState = useCallback(() => {
     setIsConfigured(getResolvedAuthConfig() !== null);
@@ -137,6 +152,7 @@ export function useSpotifyAuth() {
 
   return {
     token,
+    user,
     login,
     logout,
     error,
