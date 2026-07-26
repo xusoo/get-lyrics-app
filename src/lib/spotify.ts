@@ -374,8 +374,12 @@ function isSpotifyTrack(item: unknown): item is SpotifyTrack {
 }
 
 // How many upcoming tracks to keep as a look-ahead buffer. MainView consumes the
-// first as the immediate "next" and the rest as an optimistic queue for rapid skips.
-const QUEUE_LOOKAHEAD = 5;
+// first as the immediate "next" and the rest as an optimistic queue for rapid
+// skips. Kept larger than the ~5 actually displayed (QueuePanel's own cap) so a
+// skip's synchronous promotion (shifting the buffer by one) still leaves enough
+// buffered tracks to fill the display instantly, instead of showing a gap until
+// the next getNextInQueue call resolves.
+const QUEUE_LOOKAHEAD = 10;
 
 export async function getNextInQueue(accessToken: string, signal?: AbortSignal): Promise<SpotifyTrack[]> {
   const res = await spotifyFetch('https://api.spotify.com/v1/me/player/queue', accessToken, { signal });
@@ -386,7 +390,7 @@ export async function getNextInQueue(accessToken: string, signal?: AbortSignal):
 
 export async function getQueue(accessToken: string): Promise<{ currentlyPlaying: SpotifyTrack | null; queue: SpotifyTrack[] }> {
   const res = await spotifyFetch('https://api.spotify.com/v1/me/player/queue', accessToken);
-  if (!res.ok) return { currentlyPlaying: null, queue: [] };
+  if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
   const json = await res.json() as { currently_playing?: unknown; queue?: unknown[] };
   return {
     currentlyPlaying: isSpotifyTrack(json.currently_playing) ? json.currently_playing : null,

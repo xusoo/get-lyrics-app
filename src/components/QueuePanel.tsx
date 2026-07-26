@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { X, Music, Loader2, ListMusic } from 'lucide-react';
 import { getQueue } from '../lib/spotify';
 import type { SpotifyTrack } from '../types';
@@ -27,6 +27,15 @@ interface QueuePanelProps {
   isOpen: boolean;
   accessToken: string;
   currentTrackId: string | null;
+  /**
+   * Already-known current/upcoming tracks (from MainView's own queue
+   * prefetch) to render instantly on open, before the panel's own fetch
+   * resolves. The look-ahead is passed as refs (read only inside effects,
+   * never during render) since MainView mutates them outside React state.
+   */
+  seedCurrentTrack: SpotifyTrack | null;
+  nextTrackRef: RefObject<SpotifyTrack | null>;
+  pendingQueueRef: RefObject<SpotifyTrack[]>;
   onClose: () => void;
   onSkipTo: (track: SpotifyTrack, skipsNeeded: number, context: QueueSkipContext) => void;
 }
@@ -38,51 +47,197 @@ function formatDuration(ms: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSkipTo }: QueuePanelProps) {
+interface QueueRowProps {
+  entry: QueueEntry;
+  isOptimisticCurrent: boolean;
+  isDimmed: boolean;
+  isDisabled: boolean;
+  onClick: () => void;
+  /** True for rows present at the panel's initial reveal — render at full size immediately. Rows added later (e.g. the look-ahead backfilling a slot) animate in instead, so the panel doesn't visibly jump. Read only at mount; later prop changes don't retroactively affect an already-settled row. */
+  instant: boolean;
+}
+
+function QueueRow({ entry, isOptimisticCurrent, isDimmed, isDisabled, onClick, instant }: QueueRowProps) {
+  const [entered, setEntered] = useState(instant);
+  useEffect(() => {
+    if (instant) return;
+    const id = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the mount-time value of `instant` matters
+  }, []);
+
+  const { track } = entry;
+  const artwork = track.album.images[track.album.images.length - 1]?.url
+    ?? track.album.images[0]?.url;
+
+  return (
+    <div
+      className="grid transition-[grid-template-rows] duration-300 ease-out"
+      style={{ gridTemplateRows: entered ? '1fr' : '0fr' }}
+    >
+      <div className="overflow-hidden">
+        <button
+          onClick={onClick}
+          disabled={isDisabled}
+          className={[
+            'w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors transition-opacity duration-300',
+            entered ? 'opacity-100' : 'opacity-0',
+            isOptimisticCurrent
+              ? 'bg-white/8 cursor-default'
+              : isDimmed
+                ? 'opacity-40 cursor-not-allowed'
+                : 'hover:bg-white/10 active:bg-white/15 cursor-pointer',
+          ].join(' ')}
+        >
+          {/* Thumbnail */}
+          <div className="w-9 h-9 rounded-lg flex-shrink-0 overflow-hidden bg-white/10 flex items-center justify-center">
+            {artwork ? (
+              <img src={artwork} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <Music size={14} className="text-white/40" />
+            )}
+          </div>
+
+          {/* Track info */}
+          <div className="flex-1 min-w-0">
+            <p className={[
+              'text-xs font-medium truncate leading-snug',
+              isOptimisticCurrent ? 'text-green-400' : 'text-white/90',
+            ].join(' ')}>
+              {track.name}
+            </p>
+            <p className="text-white/45 text-xs truncate mt-0.5">
+              {track.artists.map((a) => a.name).join(', ')}
+            </p>
+          </div>
+
+          {/* Status indicator */}
+          <div className="flex-shrink-0 flex items-center">
+            {isOptimisticCurrent ? (
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+            ) : (
+              <span className="text-white/25 text-xs tabular-nums">
+                {formatDuration(track.duration_ms)}
+              </span>
+            )}
+          </div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function QueuePanel({ isOpen, accessToken, currentTrackId, seedCurrentTrack, nextTrackRef, pendingQueueRef, onClose, onSkipTo }: QueuePanelProps) {
   const [entries, setEntries] = useState<QueueEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingSkip, setPendingSkip] = useState<{ trackId: string; skipsNeeded: number } | null>(null);
+  // False for the panel's initial reveal on open (those rows render at full
+  // size instantly); flips true once shown, so any row added afterwards
+  // (e.g. the look-ahead backfilling a slot) animates in instead of popping.
+  // Resets on close so the next open is instant again. Derived directly in
+  // the render body (rather than an effect) per React's guidance for state
+  // that adjusts in response to a prop change, avoiding an extra render pass.
+  const [revealed, setRevealed] = useState(false);
+  const prevIsOpenForRevealRef = useRef(isOpen);
+  if (prevIsOpenForRevealRef.current !== isOpen) {
+    prevIsOpenForRevealRef.current = isOpen;
+    if (!isOpen && revealed) setRevealed(false);
+  }
+  if (isOpen && !revealed && entries.length > 0) setRevealed(true);
   const accessTokenRef = useRef(accessToken);
   accessTokenRef.current = accessToken;
+  const seedCurrentTrackRef = useRef(seedCurrentTrack);
+  seedCurrentTrackRef.current = seedCurrentTrack;
+  const currentTrackIdRef = useRef(currentTrackId);
+  currentTrackIdRef.current = currentTrackId;
   const delayedRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await getQueue(accessTokenRef.current);
-      const all: QueueEntry[] = [];
-      if (result.currentlyPlaying) {
-        all.push({ track: result.currentlyPlaying, skipsNeeded: 0 });
+    async function attempt(n: number): Promise<void> {
+      if (n === 0) setLoading(true);
+      try {
+        const result = await getQueue(accessTokenRef.current);
+        // Spotify's queue endpoint can keep reporting the track we just left
+        // as "currently playing" for a couple of seconds after a skip. Don't
+        // let that stale answer regress an already-correct seeded display —
+        // retry instead, same as MainView's own next-track discovery does.
+        const expected = currentTrackIdRef.current;
+        const isStale = !!expected && !!result.currentlyPlaying && result.currentlyPlaying.id !== expected;
+        if (isStale) {
+          if (n < 3) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            await attempt(n + 1);
+          } else {
+            setLoading(false);
+          }
+          return;
+        }
+        const all: QueueEntry[] = [];
+        if (result.currentlyPlaying) {
+          all.push({ track: result.currentlyPlaying, skipsNeeded: 0 });
+        }
+        result.queue.slice(0, 5).forEach((t, i) => all.push({ track: t, skipsNeeded: i + 1 }));
+        setEntries(all);
+        setPendingSkip(null);
+        setLoading(false);
+      } catch {
+        // Transient failures (token refresh race, momentary 5xx) get one
+        // retry before giving up, so the panel doesn't need a manual
+        // close/reopen.
+        if (n < 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await attempt(n + 1);
+        } else {
+          setLoading(false);
+        }
       }
-      result.queue.slice(0, 5).forEach((t, i) => all.push({ track: t, skipsNeeded: i + 1 }));
-      setEntries(all);
-      setPendingSkip(null);
-    } catch {
-      // ignore network errors
-    } finally {
-      setLoading(false);
     }
+    await attempt(0);
   }, []);
 
-  // Fetch queue whenever the panel opens
+  // Builds the visible list from MainView's continuously-updated look-ahead
+  // (kept fresh regardless of whether this panel is open) so the panel never
+  // shows leftover stale entries from before it was last closed — refresh()
+  // still runs after to confirm/correct against the authoritative fetch.
+  const seedEntries = useCallback(() => {
+    const seedCurrent = seedCurrentTrackRef.current;
+    const seedNext = nextTrackRef.current;
+    const seedUpcomingTracks = pendingQueueRef.current;
+    if (!seedCurrent && !seedNext) return;
+    const seeded: QueueEntry[] = [];
+    if (seedCurrent) seeded.push({ track: seedCurrent, skipsNeeded: 0 });
+    if (seedNext) seeded.push({ track: seedNext, skipsNeeded: 1 });
+    // Cap to match refresh()'s own display limit (5 upcoming total, incl. seedNext)
+    // — the underlying buffer is intentionally kept larger than this for headroom.
+    seedUpcomingTracks.slice(0, 4).forEach((t, i) => seeded.push({ track: t, skipsNeeded: i + 2 }));
+    setEntries(seeded);
+  }, [nextTrackRef, pendingQueueRef]);
+
+  // Re-seed and re-fetch every time the panel opens, so it reflects the
+  // current song/queue immediately rather than whatever was last displayed.
   useEffect(() => {
     if (!isOpen) return;
+    seedEntries();
     void refresh();
-  }, [isOpen, refresh]);
+  }, [isOpen, refresh, seedEntries]);
 
-  // Re-fetch when the playing track changes (natural song end, external skip, etc.)
-  // Skip the immediate refresh after a queue-tap — Spotify won't reflect the
-  // change yet; the delayed refresh scheduled in handleSkipTo will sync later.
+  // Re-seed and re-fetch when the playing track changes while already open
+  // (natural song end, external skip, etc.), so a live panel updates without
+  // needing to be closed and reopened. Skip the immediate refresh after a
+  // queue-tap — Spotify won't reflect the change yet; the delayed refresh
+  // scheduled in handleSkipTo will sync later. prevTrackIdRef is kept in sync
+  // even while closed so reopening doesn't also trigger a redundant refresh
+  // here on top of the open-effect above.
   const prevTrackIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!isOpen) return;
-    if (currentTrackId !== prevTrackIdRef.current) {
-      prevTrackIdRef.current = currentTrackId;
-      if (!delayedRefreshRef.current) {
-        void refresh();
-      }
+    const changed = currentTrackId !== prevTrackIdRef.current;
+    prevTrackIdRef.current = currentTrackId;
+    if (!isOpen || !changed) return;
+    if (!delayedRefreshRef.current) {
+      seedEntries();
+      void refresh();
     }
-  }, [currentTrackId, isOpen, refresh]);
+  }, [currentTrackId, isOpen, refresh, seedEntries]);
 
   // Clear any pending refresh timeout on unmount
   useEffect(() => () => {
@@ -164,57 +319,17 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, onClose, onSki
               const isOptimisticCurrent = pendingSkip ? track.id === pendingSkip.trackId : skipsNeeded === 0;
               const isDimmed = pendingSkip != null && skipsNeeded < pendingSkip.skipsNeeded && track.id !== pendingSkip.trackId;
               const isDisabled = isOptimisticCurrent || isDimmed;
-              // Use smallest thumbnail to save bandwidth
-              const artwork = track.album.images[track.album.images.length - 1]?.url
-                ?? track.album.images[0]?.url;
 
               return (
-                <button
+                <QueueRow
                   key={`${track.id}-${i}`}
+                  entry={entry}
+                  isOptimisticCurrent={isOptimisticCurrent}
+                  isDimmed={isDimmed}
+                  isDisabled={isDisabled}
                   onClick={() => handleSkipTo(track, skipsNeeded)}
-                  disabled={isDisabled}
-                  className={[
-                    'w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors',
-                    isOptimisticCurrent
-                      ? 'bg-white/8 cursor-default'
-                      : isDimmed
-                        ? 'opacity-40 cursor-not-allowed'
-                        : 'hover:bg-white/10 active:bg-white/15 cursor-pointer',
-                  ].join(' ')}
-                >
-                  {/* Thumbnail */}
-                  <div className="w-9 h-9 rounded-lg flex-shrink-0 overflow-hidden bg-white/10 flex items-center justify-center">
-                    {artwork ? (
-                      <img src={artwork} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <Music size={14} className="text-white/40" />
-                    )}
-                  </div>
-
-                  {/* Track info */}
-                  <div className="flex-1 min-w-0">
-                    <p className={[
-                      'text-xs font-medium truncate leading-snug',
-                      isOptimisticCurrent ? 'text-green-400' : 'text-white/90',
-                    ].join(' ')}>
-                      {track.name}
-                    </p>
-                    <p className="text-white/45 text-xs truncate mt-0.5">
-                      {track.artists.map((a) => a.name).join(', ')}
-                    </p>
-                  </div>
-
-                  {/* Status indicator */}
-                  <div className="flex-shrink-0 flex items-center">
-                    {isOptimisticCurrent ? (
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                    ) : (
-                      <span className="text-white/25 text-xs tabular-nums">
-                        {formatDuration(track.duration_ms)}
-                      </span>
-                    )}
-                  </div>
-                </button>
+                  instant={!revealed}
+                />
               );
             })}
           </div>

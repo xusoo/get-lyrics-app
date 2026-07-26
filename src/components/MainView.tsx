@@ -638,6 +638,9 @@ export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSp
         isOpen={queuePanelOpen}
         accessToken={token.access_token}
         currentTrackId={playback?.track.id ?? null}
+        seedCurrentTrack={playback?.track ?? null}
+        nextTrackRef={nextTrackRef}
+        pendingQueueRef={pendingQueueRef}
         onClose={() => setQueuePanelOpen(false)}
         onSkipTo={handleQueueSkipTo}
       />
