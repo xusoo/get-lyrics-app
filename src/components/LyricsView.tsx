@@ -174,6 +174,7 @@ export function LyricsView({
               const dist = Math.abs(i - currentLineIndex);
               const style = SCALE[dist] ?? DEFAULT_STYLE;
               const isCurrent = isSynced && i === currentLineIndex;
+              const isPrevious = isSynced && i < currentLineIndex;
 
               return (
                 <button
@@ -185,6 +186,7 @@ export function LyricsView({
                   className={[
                     'w-full text-center font-bold transition-[transform,opacity] duration-500 px-4 rounded-2xl',
                     isSynced ? 'leading-snug py-2' : 'leading-tight py-1',
+                    isPrevious ? 'text-white/40' : 'text-white',
                     'text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60',
                     isSynced && !isCurrent ? 'cursor-pointer hover:opacity-90 active:opacity-70' : '',
                     !isSynced ? 'cursor-default' : '',
