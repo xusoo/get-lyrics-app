@@ -21,15 +21,23 @@ function App() {
     if (!isConfigured) {
       const draft = getSetupDraft();
       return (
-        <SetupScreen
-          initialClientId={draft.clientId}
-          initialRedirectUri={draft.redirectUri}
-          onSave={saveSpotifySetup}
-          error={error}
-        />
+        <>
+          <SetupScreen
+            initialClientId={draft.clientId}
+            initialRedirectUri={draft.redirectUri}
+            onSave={saveSpotifySetup}
+            error={error}
+          />
+          <Analytics />
+        </>
       );
     }
-    return <LoginScreen onLogin={login} error={error} />;
+    return (
+      <>
+        <LoginScreen onLogin={login} error={error} />
+        <Analytics />
+      </>
+    );
   }
 
   return (
