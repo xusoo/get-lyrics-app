@@ -4,6 +4,7 @@ import type { PlaybackState, SpotifyTrack, TokenData } from '../types';
 
 const POLL_INTERVAL = 3000;
 const OFFLINE_THRESHOLD = 3; // consecutive errors before we surface the offline state
+const EMPTY_THRESHOLD = 2; // consecutive "nothing playing" polls before we clear playback
 
 export function useCurrentTrack(token: TokenData | null) {
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
@@ -12,6 +13,7 @@ export function useCurrentTrack(token: TokenData | null) {
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const consecutiveErrors = useRef(0);
+  const consecutiveEmpty = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const pollSeqRef = useRef(0);
   // rejectIds: tracks we just left or skipped over — block them from re-entering via stale polls.
@@ -53,8 +55,16 @@ export function useCurrentTrack(token: TokenData | null) {
       consecutiveErrors.current = 0;
       setIsOffline(false);
       if (!data) {
-        setPlayback(null);
+        // Spotify can report a transient gap between tracks (is_playing: true
+        // with no item yet, or a brief 204) during ordinary track transitions.
+        // Require a couple of consecutive empty polls before trusting it, so a
+        // single blip doesn't flash the "nothing playing" empty state.
+        consecutiveEmpty.current += 1;
+        if (consecutiveEmpty.current >= EMPTY_THRESHOLD) {
+          setPlayback(null);
+        }
       } else {
+        consecutiveEmpty.current = 0;
         const next = {
           track: data.item,
           progress_ms: data.progress_ms ?? 0,
@@ -84,6 +94,7 @@ export function useCurrentTrack(token: TokenData | null) {
       setLoading(false);
       setIsOffline(false);
       consecutiveErrors.current = 0;
+      consecutiveEmpty.current = 0;
       return;
     }
     setLoading(true);
@@ -136,6 +147,7 @@ export function useCurrentTrack(token: TokenData | null) {
     };
     playbackRef.current = next;
     setPlayback(next);
+    consecutiveEmpty.current = 0;
   }, []);
 
   return { playback, loading, isOffline, setOptimisticTrack };
