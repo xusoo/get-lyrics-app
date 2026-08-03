@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/react';
 import { LoginScreen } from './components/LoginScreen';
 import { MainView } from './components/MainView';
 import { SetupScreen } from './components/SetupScreen';
@@ -31,12 +32,15 @@ function App() {
   }
 
   return (
-    <MainView
-      token={token}
-      onLogout={logout}
-      onForgetSpotifySetup={clearSpotifySetup}
-      onSaveSpotifySetup={saveSpotifySetup}
-    />
+    <>
+      <MainView
+        token={token}
+        onLogout={logout}
+        onForgetSpotifySetup={clearSpotifySetup}
+        onSaveSpotifySetup={saveSpotifySetup}
+      />
+      <Analytics />
+    </>
   );
 }
 
