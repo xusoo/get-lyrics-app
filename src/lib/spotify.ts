@@ -1,4 +1,4 @@
-import type { CurrentlyPlayingResponse, SpotifyTrack, TokenData } from '../types';
+import type { CurrentlyPlayingResponse, SpotifyTrack, SpotifyUser, TokenData } from '../types';
 
 const RUNTIME_AUTH_CONFIG_KEY = 'spotify_auth_config';
 
@@ -17,6 +17,8 @@ const SCOPES = [
   'user-read-currently-playing',
   'user-read-playback-state',
   'user-modify-playback-state',
+  'user-read-email',
+  'user-read-private',
 ].join(' ');
 
 const TOKEN_KEY = 'spotify_token';
@@ -313,6 +315,12 @@ export async function getCurrentlyPlaying(accessToken: string, signal?: AbortSig
   return json;
 }
 
+export async function getCurrentUserProfile(accessToken: string, signal?: AbortSignal): Promise<SpotifyUser> {
+  const res = await spotifyFetch('https://api.spotify.com/v1/me', accessToken, { signal });
+  if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
+  return res.json() as Promise<SpotifyUser>;
+}
+
 function checkPlaybackResponse(res: Response): void {
   if (res.ok || res.status === 204) return;
   if (res.status === 403) throw new Error('Spotify Premium is required for playback control.');
@@ -366,8 +374,12 @@ function isSpotifyTrack(item: unknown): item is SpotifyTrack {
 }
 
 // How many upcoming tracks to keep as a look-ahead buffer. MainView consumes the
-// first as the immediate "next" and the rest as an optimistic queue for rapid skips.
-const QUEUE_LOOKAHEAD = 5;
+// first as the immediate "next" and the rest as an optimistic queue for rapid
+// skips. Kept larger than the ~5 actually displayed (QueuePanel's own cap) so a
+// skip's synchronous promotion (shifting the buffer by one) still leaves enough
+// buffered tracks to fill the display instantly, instead of showing a gap until
+// the next getNextInQueue call resolves.
+const QUEUE_LOOKAHEAD = 10;
 
 export async function getNextInQueue(accessToken: string, signal?: AbortSignal): Promise<SpotifyTrack[]> {
   const res = await spotifyFetch('https://api.spotify.com/v1/me/player/queue', accessToken, { signal });
@@ -378,7 +390,7 @@ export async function getNextInQueue(accessToken: string, signal?: AbortSignal):
 
 export async function getQueue(accessToken: string): Promise<{ currentlyPlaying: SpotifyTrack | null; queue: SpotifyTrack[] }> {
   const res = await spotifyFetch('https://api.spotify.com/v1/me/player/queue', accessToken);
-  if (!res.ok) return { currentlyPlaying: null, queue: [] };
+  if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
   const json = await res.json() as { currently_playing?: unknown; queue?: unknown[] };
   return {
     currentlyPlaying: isSpotifyTrack(json.currently_playing) ? json.currently_playing : null,

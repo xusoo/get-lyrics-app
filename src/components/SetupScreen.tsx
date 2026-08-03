@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { KeyRound, ExternalLink, ArrowRight, Music2, Copy, Check } from 'lucide-react';
+import { KeyRound, ExternalLink, ArrowRight, Music2, Copy, Check, Clipboard } from 'lucide-react';
 import { isValidSpotifyClientId } from '../lib/spotify';
 
 interface SetupScreenProps {
@@ -23,6 +23,8 @@ export function SetupScreen({
   const [redirectUri, setRedirectUri] = useState(initialRedirectUri);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [pasteStatus, setPasteStatus] = useState<'idle' | 'pending'>('idle');
 
   const trimmedClientId = clientId.trim();
   const trimmedRedirectUri = redirectUri.trim();
@@ -44,6 +46,23 @@ export function SetupScreen({
       window.setTimeout(() => setCopyState('idle'), 1500);
     } catch {
       setCopyState('idle');
+    }
+  };
+
+  const pasteClientId = async () => {
+    setPasteError(null);
+    setPasteStatus('pending');
+    const timeoutId = window.setTimeout(() => {
+      setPasteError('Still waiting — check for a clipboard permission popup near your address bar and allow it.');
+    }, 2500);
+    try {
+      const text = await navigator.clipboard.readText();
+      setClientId(text.trim());
+    } catch {
+      setPasteError('Could not read from clipboard. Copy the Client ID, then try again.');
+    } finally {
+      window.clearTimeout(timeoutId);
+      setPasteStatus('idle');
     }
   };
 
@@ -119,23 +138,48 @@ export function SetupScreen({
 
             <div className="flex flex-col gap-2">
               <label htmlFor="client-id" className="text-white/80 text-sm font-medium">Spotify Client ID</label>
-              <input
-                id="client-id"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                placeholder="32-character client ID"
-                autoComplete="off"
-                spellCheck={false}
-                className={[
-                  'bg-white/10 border rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:ring-2',
-                  trimmedClientId.length === 0
-                    ? 'border-white/20 focus:ring-white/40'
-                    : clientIdValid
-                      ? 'border-emerald-400/50 focus:ring-emerald-400/50'
-                      : 'border-red-400/60 focus:ring-red-400/60',
-                ].join(' ')}
-              />
-              <p className="text-white/50 text-xs">Found in your Spotify Developer Dashboard app settings.</p>
+              <p className="text-white/50 text-xs">
+                Create a new Client ID in the{' '}
+                <a
+                  href="https://developer.spotify.com/dashboard"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-emerald-200/90 hover:text-emerald-100 underline underline-offset-2"
+                >
+                  Spotify Developer Dashboard
+                  <ExternalLink size={14} />
+                </a>
+                , copy it, then come back here and tap Paste.
+              </p>
+              <div className="relative">
+                <input
+                  id="client-id"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  placeholder="32-character client ID"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className={[
+                    'w-full bg-white/10 border rounded-xl px-3 py-2.5 pr-24 text-white text-sm focus:outline-none focus:ring-2',
+                    trimmedClientId.length === 0
+                      ? 'border-white/20 focus:ring-white/40'
+                      : clientIdValid
+                        ? 'border-emerald-400/50 focus:ring-emerald-400/50'
+                        : 'border-red-400/60 focus:ring-red-400/60',
+                  ].join(' ')}
+                />
+                <button
+                  type="button"
+                  onClick={pasteClientId}
+                  disabled={pasteStatus === 'pending'}
+                  aria-label="Paste from clipboard"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 px-2 py-1 rounded-md border border-white/20 bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs transition-colors disabled:opacity-60"
+                >
+                  <Clipboard size={12} />
+                  <span>{pasteStatus === 'pending' ? 'Waiting…' : 'Paste'}</span>
+                </button>
+              </div>
+              {pasteError && <p className="text-red-300 text-xs">{pasteError}</p>}
               {trimmedClientId.length > 0 && !clientIdValid && (
                 <p className="text-red-300 text-xs">Client ID should be 32 hexadecimal characters.</p>
               )}
@@ -186,17 +230,7 @@ export function SetupScreen({
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <a
-                href="https://developer.spotify.com/dashboard"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-emerald-200/90 hover:text-emerald-100 text-sm"
-              >
-                Open Spotify Dashboard
-                <ExternalLink size={14} />
-              </a>
-
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
               <button
                 onClick={() => {
                   setSaveError(null);

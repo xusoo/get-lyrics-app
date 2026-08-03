@@ -38,12 +38,16 @@ export interface LyricLine {
   text: string;
 }
 
+export type MiniPlayerLayout = 'centered' | 'split';
+
 export interface Settings {
   fontSize: number; // base px
   uiFontSize: number; // base px for :root font-size (UI scaling)
   defaultLyricsOffset: number; // ms — positive = show lyrics earlier, negative = later
   backgroundBlur: number; // 0-100 (percent)
   backgroundDim: number; // 0-100 (percent, extra dark overlay on top of the blurred art)
+  miniPlayerLayout: MiniPlayerLayout; // mini-player bar arrangement
+  miniPlayerFlipped: boolean; // mirror mini-player + satellite panels to the opposite side
   cacheMaxTTL: number; // ms
   cacheMaxEntries: number; // number
 }
@@ -62,4 +66,11 @@ export interface CurrentlyPlayingResponse {
   is_playing: boolean;
   currently_playing_type: string;
   repeat_state?: RepeatState;
+}
+
+export interface SpotifyUser {
+  id: string;
+  display_name: string | null;
+  email?: string;
+  images?: SpotifyImage[];
 }

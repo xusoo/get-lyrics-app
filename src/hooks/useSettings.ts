@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Settings } from '../types';
+import type { MiniPlayerLayout, Settings } from '../types';
 import { clearLyricsCache, configureCacheSettings } from '../lib/lyrics-store';
 
 const SETTINGS_KEY = 'lyrics_settings';
@@ -10,6 +10,8 @@ const DEFAULTS: Settings = {
   defaultLyricsOffset: 0,
   backgroundBlur: 30,
   backgroundDim: 50,
+  miniPlayerLayout: 'centered',
+  miniPlayerFlipped: false,
   cacheMaxTTL: 90 * 24 * 60 * 60 * 1000, // 90 days
   cacheMaxEntries: 1000,
 };
@@ -69,6 +71,14 @@ export function useSettings() {
     setSettings((s) => ({ ...s, backgroundDim: Math.max(0, Math.min(100, dim)) }));
   }, []);
 
+  const setMiniPlayerLayout = useCallback((layout: MiniPlayerLayout) => {
+    setSettings((s) => ({ ...s, miniPlayerLayout: layout }));
+  }, []);
+
+  const setMiniPlayerFlipped = useCallback((flipped: boolean) => {
+    setSettings((s) => ({ ...s, miniPlayerFlipped: flipped }));
+  }, []);
+
   const setCacheMaxTTL = useCallback((ttl: number) => {
     setSettings((s) => ({ ...s, cacheMaxTTL: Math.max(0, ttl) }));
   }, []);
@@ -91,6 +101,8 @@ export function useSettings() {
     setUIFontSize,
     setBackgroundBlur,
     setBackgroundDim,
+    setMiniPlayerLayout,
+    setMiniPlayerFlipped,
     setCacheMaxTTL,
     setCacheMaxEntries,
     clearCache,

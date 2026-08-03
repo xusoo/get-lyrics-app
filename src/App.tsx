@@ -7,6 +7,7 @@ import { useSpotifyAuth } from './hooks/useSpotifyAuth';
 function App() {
   const {
     token,
+    user,
     login,
     logout,
     error,
@@ -35,6 +36,7 @@ function App() {
     <>
       <MainView
         token={token}
+        user={user}
         onLogout={logout}
         onForgetSpotifySetup={clearSpotifySetup}
         onSaveSpotifySetup={saveSpotifySetup}

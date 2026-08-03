@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Rewind, FastForward, Trash2, ChevronDown } from 'lucide-react';
-import type { Settings } from '../types';
+import type { MiniPlayerLayout, Settings, SpotifyUser } from '../types';
 import { getCacheStats } from '../lib/lyrics-store';
 import {
   getResolvedAuthConfig,
@@ -14,9 +14,13 @@ const DEFAULT_UI_FONT_SIZE = 16;
 const DEFAULT_BG_BLUR = 30;
 const DEFAULT_BG_DIM = 50;
 
+const TABS = ['General', 'Advanced', 'Account'] as const;
+type Tab = (typeof TABS)[number];
+
 interface SettingsPanelProps {
   isOpen: boolean;
   settings: Settings;
+  user: SpotifyUser | null;
   onClose: () => void;
   onSetUIFontSize: (size: number) => void;
   onIncreaseLyricsFontSize: () => void;
@@ -26,6 +30,8 @@ interface SettingsPanelProps {
   onResetDefaultOffset: () => void;
   onSetBackgroundBlur: (blur: number) => void;
   onSetBackgroundDim: (dim: number) => void;
+  onSetMiniPlayerLayout: (layout: MiniPlayerLayout) => void;
+  onSetMiniPlayerFlipped: (flipped: boolean) => void;
   onSetCacheMaxTTL: (ttl: number) => void;
   onSetCacheMaxEntries: (entries: number) => void;
   onClearCache: () => void;
@@ -111,6 +117,7 @@ function Section({
 export function SettingsPanel({
   isOpen,
   settings,
+  user,
   onClose,
   onSetUIFontSize,
   onIncreaseLyricsFontSize,
@@ -120,6 +127,8 @@ export function SettingsPanel({
   onResetDefaultOffset,
   onSetBackgroundBlur,
   onSetBackgroundDim,
+  onSetMiniPlayerLayout,
+  onSetMiniPlayerFlipped,
   onSetCacheMaxTTL,
   onSetCacheMaxEntries,
   onClearCache,
@@ -128,6 +137,7 @@ export function SettingsPanel({
   onSaveSpotifySetup,
 }: SettingsPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('General');
   const [cacheStats, setCacheStats] = useState({ entryCount: 0, storageSize: 0 });
   const [clientId, setClientId] = useState('');
   const [useCustomRedirect, setUseCustomRedirect] = useState(false);
@@ -138,6 +148,7 @@ export function SettingsPanel({
   // Update cache stats when panel opens
   useEffect(() => {
     if (isOpen) {
+      setActiveTab('General');
       setCacheStats(getCacheStats());
       const resolved = getResolvedAuthConfig();
       const runtime = getRuntimeAuthDraft();
@@ -180,7 +191,7 @@ export function SettingsPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="relative w-full h-full md:w-1/2 md:max-h-[80vh] md:rounded-3xl bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl flex flex-col overflow-hidden"
+        className="relative w-full h-full md:w-1/2 md:h-auto md:max-h-[80vh] md:rounded-3xl bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl flex flex-col overflow-hidden"
         style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)' }}
       >
         {/* Header */}
@@ -195,8 +206,30 @@ export function SettingsPanel({
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex items-center gap-1 px-6 pt-3 shrink-0 border-b border-white/10" role="tablist">
+          {TABS.map((tab) => (
+            <button
+              key={tab}
+              role="tab"
+              aria-selected={activeTab === tab}
+              onClick={() => setActiveTab(tab)}
+              className={[
+                'px-3.5 py-2 text-sm font-medium rounded-t-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 border-b-2 -mb-px',
+                activeTab === tab
+                  ? 'text-white border-white/70'
+                  : 'text-white/50 hover:text-white/80 border-transparent',
+              ].join(' ')}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6" style={{ scrollbarWidth: 'none' }}>
+          {activeTab === 'General' && (
+          <>
           {/* Display Section */}
           <Section title="Display">
             <Slider
@@ -261,6 +294,40 @@ export function SettingsPanel({
             </button>
           </Section>
 
+          {/* Miniplayer Section */}
+          <Section title="Miniplayer">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-white/60 text-sm">Layout</span>
+              <div className="flex items-center rounded-lg overflow-hidden border border-white/10">
+                {(['centered', 'split'] as const).map((layout) => (
+                  <button
+                    key={layout}
+                    onClick={() => onSetMiniPlayerLayout(layout)}
+                    aria-pressed={settings.miniPlayerLayout === layout}
+                    className={[
+                      'px-3 py-1.5 text-sm capitalize transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60',
+                      settings.miniPlayerLayout === layout
+                        ? 'bg-white/20 text-white'
+                        : 'text-white/60 hover:bg-white/10',
+                    ].join(' ')}
+                  >
+                    {layout}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label className="inline-flex items-center gap-2 text-white/70 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.miniPlayerFlipped}
+                onChange={(e) => onSetMiniPlayerFlipped(e.target.checked)}
+                className="accent-white"
+              />
+              Flip layout (mirror controls and song info)
+            </label>
+          </Section>
+
           {/* Sync Section */}
           <Section title="Lyrics Sync">
             <div className="flex items-center justify-between gap-2">
@@ -301,9 +368,13 @@ export function SettingsPanel({
               </div>
             </div>
           </Section>
+          </>
+          )}
 
-          {/* Advanced Section */}
-          <Section title="Advanced" collapsible defaultOpen={false}>
+          {activeTab === 'Advanced' && (
+          <>
+          {/* Cache Section */}
+          <Section title="Cache">
             <div className="bg-white/5 border border-white/10 rounded-lg p-4">
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -356,6 +427,45 @@ export function SettingsPanel({
             >
               <Trash2 size={16} />
               Clear Cache
+            </button>
+          </Section>
+          </>
+          )}
+
+          {activeTab === 'Account' && (
+          <>
+          {/* Spotify Account Section */}
+          <Section title="Spotify Account">
+            <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-4">
+              {user?.images?.[0]?.url ? (
+                <img
+                  src={user.images[0].url}
+                  alt=""
+                  className="w-12 h-12 rounded-full object-cover shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-white/50 text-lg font-semibold shrink-0">
+                  {(user?.display_name || '?').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="text-white font-semibold text-sm truncate">
+                  {user?.display_name || 'Unknown user'}
+                </div>
+                {user?.email && (
+                  <div className="text-white/50 text-xs truncate">{user.email}</div>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                onLogout();
+                onClose();
+              }}
+              className="w-full px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/40 rounded-lg text-white font-medium text-sm active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              Log Out
             </button>
           </Section>
 
@@ -464,19 +574,8 @@ export function SettingsPanel({
             </div>
             </Section>
           )}
-
-          {/* Account Section */}
-          <Section title="Account">
-            <button
-              onClick={() => {
-                onLogout();
-                onClose();
-              }}
-              className="w-full px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/40 rounded-lg text-white font-medium text-sm active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-            >
-              Log Out
-            </button>
-          </Section>
+          </>
+          )}
         </div>
       </div>
     </div>

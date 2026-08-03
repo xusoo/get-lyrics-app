@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LyricsPicker } from './LyricsPicker';
 import { MiniPlayer } from './MiniPlayer';
+import { NextPlayingPopup } from './NextPlayingPopup';
 import { QueuePanel, type QueueSkipContext } from './QueuePanel';
 import { SettingsBar } from './SettingsBar';
 import { SettingsPanel } from './SettingsPanel';
@@ -12,18 +13,19 @@ import { usePlaybackSync } from '../hooks/usePlaybackSync';
 import { useSettings } from '../hooks/useSettings';
 import { usePerSongOffset } from '../hooks/usePerSongOffset';
 import { getNextInQueue, skipToNext, skipToPrevious, skipMultiple, seekTo } from '../lib/spotify';
-import type { TokenData, SpotifyTrack } from '../types';
+import type { TokenData, SpotifyTrack, SpotifyUser } from '../types';
 import type { SlideDirection, CarouselSlot } from './SongCarousel';
 import { Music2 } from 'lucide-react';
 
 interface MainViewProps {
   token: TokenData;
+  user: SpotifyUser | null;
   onLogout: () => void;
   onForgetSpotifySetup: () => void;
   onSaveSpotifySetup: (clientId: string, redirectUri?: string) => void;
 }
 
-export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifySetup }: MainViewProps) {
+export function MainView({ token, user, onLogout, onForgetSpotifySetup, onSaveSpotifySetup }: MainViewProps) {
   const {
     settings,
     increaseFontSize,
@@ -34,6 +36,8 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
     setUIFontSize,
     setBackgroundBlur,
     setBackgroundDim,
+    setMiniPlayerLayout,
+    setMiniPlayerFlipped,
     setCacheMaxTTL,
     setCacheMaxEntries,
     clearCache,
@@ -477,6 +481,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
         onResetOffset={perSongOffset.reset}
         onOpenSettings={() => setSettingsPanelOpen(true)}
         onOpenPicker={openPicker}
+        flipped={settings.miniPlayerFlipped}
       />
 
       {loading ? (
@@ -590,6 +595,7 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
       <SettingsPanel
         isOpen={settingsPanelOpen}
         settings={settings}
+        user={user}
         onClose={() => setSettingsPanelOpen(false)}
         onSetUIFontSize={setUIFontSize}
         onIncreaseLyricsFontSize={increaseFontSize}
@@ -599,6 +605,8 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
         onResetDefaultOffset={resetDefaultOffset}
         onSetBackgroundBlur={setBackgroundBlur}
         onSetBackgroundDim={setBackgroundDim}
+        onSetMiniPlayerLayout={setMiniPlayerLayout}
+        onSetMiniPlayerFlipped={setMiniPlayerFlipped}
         onSetCacheMaxTTL={setCacheMaxTTL}
         onSetCacheMaxEntries={setCacheMaxEntries}
         onClearCache={clearCache}
@@ -618,6 +626,19 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
           onToggleQueue={() => setQueuePanelOpen((o) => !o)}
           onSeek={handleSeek}
           onPlaybackError={showPlaybackError}
+          layout={settings.miniPlayerLayout}
+          flipped={settings.miniPlayerFlipped}
+        />
+      )}
+
+      {playback && (
+        <NextPlayingPopup
+          playback={playback}
+          nextTrack={nextTrackForLyrics}
+          getInterpolatedMs={getInterpolatedMs}
+          onSkip={handleSkipNext}
+          suppressed={queuePanelOpen}
+          anchorLeft={settings.miniPlayerFlipped}
         />
       )}
 
@@ -625,8 +646,12 @@ export function MainView({ token, onLogout, onForgetSpotifySetup, onSaveSpotifyS
         isOpen={queuePanelOpen}
         accessToken={token.access_token}
         currentTrackId={playback?.track.id ?? null}
+        seedCurrentTrack={playback?.track ?? null}
+        nextTrackRef={nextTrackRef}
+        pendingQueueRef={pendingQueueRef}
         onClose={() => setQueuePanelOpen(false)}
         onSkipTo={handleQueueSkipTo}
+        anchorLeft={settings.miniPlayerFlipped}
       />
     </div>
   );
