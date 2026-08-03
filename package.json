@@ -13,7 +13,13 @@
   "bugs": {
     "url": "https://github.com/xusoo/get-lyrics-app/issues"
   },
-  "keywords": ["spotify", "lyrics", "karaoke", "tesla", "lrclib"],
+  "keywords": [
+    "spotify",
+    "lyrics",
+    "karaoke",
+    "tesla",
+    "lrclib"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -38,6 +44,7 @@
     "deploy:prod:full": "npm run vercel:pull:prod && npm run vercel:build && npm run deploy:prod"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "lucide-react": "^1.18.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
