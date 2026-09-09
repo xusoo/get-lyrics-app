@@ -55,77 +55,59 @@ interface QueueRowProps {
   isDimmed: boolean;
   isDisabled: boolean;
   onClick: () => void;
-  /** True for rows present at the panel's initial reveal — render at full size immediately. Rows added later (e.g. the look-ahead backfilling a slot) animate in instead, so the panel doesn't visibly jump. Read only at mount; later prop changes don't retroactively affect an already-settled row. */
-  instant: boolean;
 }
 
-function QueueRow({ entry, isOptimisticCurrent, isDimmed, isDisabled, onClick, instant }: QueueRowProps) {
-  const [entered, setEntered] = useState(instant);
-  useEffect(() => {
-    if (instant) return;
-    const id = requestAnimationFrame(() => setEntered(true));
-    return () => cancelAnimationFrame(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the mount-time value of `instant` matters
-  }, []);
-
+function QueueRow({ entry, isOptimisticCurrent, isDimmed, isDisabled, onClick }: QueueRowProps) {
   const { track } = entry;
   const artwork = track.album.images[track.album.images.length - 1]?.url
     ?? track.album.images[0]?.url;
 
   return (
-    <div
-      className="grid transition-[grid-template-rows] duration-300 ease-out"
-      style={{ gridTemplateRows: entered ? '1fr' : '0fr' }}
+    <button
+      onClick={onClick}
+      disabled={isDisabled}
+      className={[
+        'w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors',
+        isOptimisticCurrent
+          ? 'bg-white/8 cursor-default'
+          : isDimmed
+            ? 'opacity-40 cursor-not-allowed'
+            : 'hover:bg-white/10 active:bg-white/15 cursor-pointer',
+      ].join(' ')}
     >
-      <div className="overflow-hidden">
-        <button
-          onClick={onClick}
-          disabled={isDisabled}
-          className={[
-            'w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors transition-opacity duration-300',
-            entered ? 'opacity-100' : 'opacity-0',
-            isOptimisticCurrent
-              ? 'bg-white/8 cursor-default'
-              : isDimmed
-                ? 'opacity-40 cursor-not-allowed'
-                : 'hover:bg-white/10 active:bg-white/15 cursor-pointer',
-          ].join(' ')}
-        >
-          {/* Thumbnail */}
-          <div className="w-9 h-9 rounded-lg flex-shrink-0 overflow-hidden bg-white/10 flex items-center justify-center">
-            {artwork ? (
-              <img src={artwork} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <Music size={14} className="text-white/40" />
-            )}
-          </div>
-
-          {/* Track info */}
-          <div className="flex-1 min-w-0">
-            <p className={[
-              'text-xs font-medium truncate leading-snug',
-              isOptimisticCurrent ? 'text-green-400' : 'text-white/90',
-            ].join(' ')}>
-              {track.name}
-            </p>
-            <p className="text-white/45 text-xs truncate mt-0.5">
-              {track.artists.map((a) => a.name).join(', ')}
-            </p>
-          </div>
-
-          {/* Status indicator */}
-          <div className="flex-shrink-0 flex items-center">
-            {isOptimisticCurrent ? (
-              <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-            ) : (
-              <span className="text-white/25 text-xs tabular-nums">
-                {formatDuration(track.duration_ms)}
-              </span>
-            )}
-          </div>
-        </button>
+      {/* Thumbnail */}
+      <div className="w-9 h-9 rounded-lg flex-shrink-0 overflow-hidden bg-white/10 flex items-center justify-center">
+        {artwork ? (
+          <img src={artwork} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <Music size={14} className="text-white/40" />
+        )}
       </div>
-    </div>
+
+      {/* Track info */}
+      <div className="flex-1 min-w-0">
+        <p className={[
+          'text-xs font-medium truncate leading-snug',
+          isOptimisticCurrent ? 'text-green-400' : 'text-white/90',
+        ].join(' ')}>
+          {track.name}
+        </p>
+        <p className="text-white/45 text-xs truncate mt-0.5">
+          {track.artists.map((a) => a.name).join(', ')}
+        </p>
+      </div>
+
+      {/* Status indicator */}
+      <div className="flex-shrink-0 flex items-center">
+        {isOptimisticCurrent ? (
+          <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+        ) : (
+          <span className="text-white/25 text-xs tabular-nums">
+            {formatDuration(track.duration_ms)}
+          </span>
+        )}
+      </div>
+    </button>
   );
 }
 
@@ -133,19 +115,6 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, seedCurrentTra
   const [entries, setEntries] = useState<QueueEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [pendingSkip, setPendingSkip] = useState<{ trackId: string; skipsNeeded: number } | null>(null);
-  // False for the panel's initial reveal on open (those rows render at full
-  // size instantly); flips true once shown, so any row added afterwards
-  // (e.g. the look-ahead backfilling a slot) animates in instead of popping.
-  // Resets on close so the next open is instant again. Derived directly in
-  // the render body (rather than an effect) per React's guidance for state
-  // that adjusts in response to a prop change, avoiding an extra render pass.
-  const [revealed, setRevealed] = useState(false);
-  const prevIsOpenForRevealRef = useRef(isOpen);
-  if (prevIsOpenForRevealRef.current !== isOpen) {
-    prevIsOpenForRevealRef.current = isOpen;
-    if (!isOpen && revealed) setRevealed(false);
-  }
-  if (isOpen && !revealed && entries.length > 0) setRevealed(true);
   const accessTokenRef = useRef(accessToken);
   accessTokenRef.current = accessToken;
   const seedCurrentTrackRef = useRef(seedCurrentTrack);
@@ -333,7 +302,6 @@ export function QueuePanel({ isOpen, accessToken, currentTrackId, seedCurrentTra
                   isDimmed={isDimmed}
                   isDisabled={isDisabled}
                   onClick={() => handleSkipTo(track, skipsNeeded)}
-                  instant={!revealed}
                 />
               );
             })}
