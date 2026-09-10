@@ -299,7 +299,7 @@ export function SettingsPanel({
             <div className="flex items-center justify-between gap-2">
               <span className="text-white/60 text-sm">Layout</span>
               <div className="flex items-center rounded-lg overflow-hidden border border-white/10">
-                {(['full', 'split'] as const).map((layout) => (
+                {(['full', 'split', 'island'] as const).map((layout) => (
                   <button
                     key={layout}
                     onClick={() => onSetMiniPlayerLayout(layout)}

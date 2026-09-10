@@ -173,11 +173,14 @@ export function MiniPlayer({
 
   // Full-bleed progress: a track running edge-to-edge (no side gutters, no
   // rounded corners) with a glowing white fill — the "premium media bar" look
-  // from mockup 1a. Shared by both layouts. In Split the bar hugs the bottom
+  // from mockup 1a. Shared by Full/Split. In Split the bar hugs the bottom
   // screen edge (labels above it) and is a touch thicker to keep a usable drag
   // target there; in Full it sits flush against the panel's top edge (labels
   // beneath it). The hit-area pad grows toward the labels, away from the edge;
   // the labels are then pulled back over it so they sit right next to the bar.
+  // Island is self-contained: a dynamic-width rounded pill with its own inset,
+  // rounded progress bar and no full-width background.
+  const isIsland = layout === "island";
   const atScreenEdge = layout === "split";
 
   const timeLabels = (
@@ -193,7 +196,9 @@ export function MiniPlayer({
     <div
       key="track"
       ref={trackRef}
-      className={`group relative cursor-grab active:cursor-grabbing touch-none ${atScreenEdge ? "pt-2.5" : "pb-2.5"}`}
+      className={`group relative cursor-grab active:cursor-grabbing touch-none ${
+        isIsland ? "py-1" : atScreenEdge ? "pt-2.5" : "pb-2.5"
+      }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -202,11 +207,17 @@ export function MiniPlayer({
       role="slider"
     >
       <div
-        className={`relative bg-white/20 overflow-visible ${atScreenEdge ? "h-[5px]" : "h-[3px]"}`}
+        className={`relative bg-white/20 overflow-visible ${
+          isIsland
+            ? "h-1 rounded-full"
+            : atScreenEdge
+              ? "h-[5px]"
+              : "h-[3px]"
+        }`}
       >
         <div
           ref={barRef}
-          className="h-full bg-white w-0"
+          className={`h-full bg-white w-0 ${isIsland ? "rounded-full" : ""}`}
           style={{ boxShadow: "0 0 10px rgba(255,255,255,0.6)" }}
         />
         <div
@@ -325,15 +336,42 @@ export function MiniPlayer({
     </div>
   );
 
+  // Island: a self-contained rounded card, centred and only as wide as its
+  // content. `w-max` sizes it to the content; `max-w-[...]` caps it to the
+  // viewport (minus a gutter) so on a narrow screen the card stops growing and
+  // the song title truncates instead — same clipping the other layouts do.
+  const islandPill = (
+    <div key="controls" className="flex justify-center px-3 pt-2 pb-3">
+      <div className="w-max max-w-[calc(100vw-1.5rem)] rounded-3xl border border-white/10 bg-black/55 backdrop-blur-2xl px-3.5 pt-2.5 pb-2.5 shadow-2xl">
+        <div className="flex items-center gap-3 min-w-0">
+          {flipped ? (
+            <>
+              {controls}
+              <div className="min-w-0">{songInfo}</div>
+            </>
+          ) : (
+            <>
+              <div className="min-w-0">{songInfo}</div>
+              {controls}
+            </>
+          )}
+        </div>
+        <div className="mt-1.5">{progressTrackEl}</div>
+      </div>
+    </div>
+  );
+
   // One stable outer element with keyed children, reordered per layout — Split
   // puts the controls above the bottom-edge bar, Full puts the top-edge bar
-  // above the controls. Keeping the tree stable is what stops the toggle from
-  // remounting (and glitching) the player.
+  // above the controls, Island is a single centred card. Keeping the tree stable
+  // is what stops the Full<->Split toggle from remounting (glitching) the player.
   const content = (
     <div className="relative flex flex-col w-full">
-      {atScreenEdge
-        ? [controlsBlock, progressBlock]
-        : [progressBlock, controlsBlock]}
+      {isIsland
+        ? islandPill
+        : atScreenEdge
+          ? [controlsBlock, progressBlock]
+          : [progressBlock, controlsBlock]}
     </div>
   );
 
@@ -367,9 +405,10 @@ export function MiniPlayer({
       </div>
 
       {/* Full background — one solid, full-width blurred panel behind the whole
-          bar, no edge fade. The progress track's own hairline is the top border. */}
+          bar, no edge fade. The progress track's own hairline is the top border.
+          Island brings its own card background, so no full-width layer there. */}
       <div
-        className={`absolute inset-0 bg-black/55 backdrop-blur-2xl ${atScreenEdge ? "hidden" : ""}`}
+        className={`absolute inset-0 bg-black/55 backdrop-blur-2xl ${layout === "full" ? "" : "hidden"}`}
       />
 
       {/* Content — always fully opaque */}
