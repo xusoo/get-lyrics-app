@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import { Pause, Play, Music, SkipBack, SkipForward, ListMusic } from 'lucide-react';
-import type { MiniPlayerLayout, PlaybackState } from '../types';
-import { togglePlayback } from '../lib/spotify';
-
-// Fade fades over a fixed 160 px on each side regardless of viewport width.
-const FADE_MASK = `linear-gradient(to right, 
-  transparent 0,
-  rgba(0, 0, 0, 0.7) calc(50% - 160px), 
-  rgba(0, 0, 0, 0.7) calc(50% + 160px), 
-  transparent 100%
-)`;
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Pause,
+  Play,
+  Music,
+  SkipBack,
+  SkipForward,
+  ListMusic,
+} from "lucide-react";
+import type { MiniPlayerLayout, PlaybackState } from "../types";
+import { togglePlayback } from "../lib/spotify";
 
 // A contained, gradual edge-to-center falloff — starts fading immediately at the
 // edge (no flat opaque plateau) so it reads as a soft glow rather than a block,
@@ -32,10 +31,10 @@ const SPLIT_FADE_MASK = `linear-gradient(to right,
 // keep the skew from revealing gaps at the layer's edges. Origin is horizontally
 // centered so the skew is mirror-symmetric — matches SPLIT_FADE_MASK's symmetry.
 const SPLIT_SKEW_STYLE: React.CSSProperties = {
-  top: '-100px',
-  bottom: '-100px',
-  transform: 'skewY(-4deg)',
-  transformOrigin: '50% 100%',
+  top: "-100px",
+  bottom: "-100px",
+  transform: "skewY(-4deg)",
+  transformOrigin: "50% 100%",
 };
 
 interface MiniPlayerProps {
@@ -56,13 +55,27 @@ function formatTime(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, onPrev, queueOpen, onToggleQueue, onSeek, onPlaybackError, layout, flipped }: MiniPlayerProps) {
+export function MiniPlayer({
+  playback,
+  accessToken,
+  getInterpolatedMs,
+  onNext,
+  onPrev,
+  queueOpen,
+  onToggleQueue,
+  onSeek,
+  onPlaybackError,
+  layout,
+  flipped,
+}: MiniPlayerProps) {
   const { track } = playback;
   // Optimistic is_playing — flipped immediately on click, corrected by next poll
-  const [optimisticPlaying, setOptimisticPlaying] = useState(playback.is_playing);
+  const [optimisticPlaying, setOptimisticPlaying] = useState(
+    playback.is_playing,
+  );
   const playbackRef = useRef(playback);
 
   // Sync optimistic state whenever real playback changes
@@ -96,9 +109,18 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
       rafRef.current = requestAnimationFrame(tick);
     }
     rafRef.current = requestAnimationFrame(tick);
-    return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track.duration_ms, getInterpolatedMs]);
+
+  // Paint the fill synchronously after every commit — before the browser
+  // paints — so a structural change like the layout toggle never shows the bar
+  // at its initial width:0 for a frame.
+  useLayoutEffect(() => {
+    if (!draggingRef.current) updateVisual(getInterpolatedMs());
+  });
 
   function ratioFromClientX(clientX: number): number {
     if (!trackRef.current) return 0;
@@ -109,7 +131,7 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     e.currentTarget.setPointerCapture(e.pointerId);
     draggingRef.current = true;
-    if (thumbRef.current) thumbRef.current.style.opacity = '1';
+    if (thumbRef.current) thumbRef.current.style.opacity = "1";
     updateVisual(ratioFromClientX(e.clientX) * track.duration_ms);
   }
 
@@ -121,13 +143,13 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
   function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
     if (!draggingRef.current) return;
     draggingRef.current = false;
-    if (thumbRef.current) thumbRef.current.style.opacity = '';
+    if (thumbRef.current) thumbRef.current.style.opacity = "";
     onSeek(ratioFromClientX(e.clientX) * track.duration_ms);
   }
 
   function handlePointerCancel() {
     draggingRef.current = false;
-    if (thumbRef.current) thumbRef.current.style.opacity = '';
+    if (thumbRef.current) thumbRef.current.style.opacity = "";
   }
 
   async function handleToggle() {
@@ -137,48 +159,91 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
       await togglePlayback(accessToken, wasPlaying);
     } catch (e) {
       setOptimisticPlaying(wasPlaying); // revert on error
-      onPlaybackError?.(e instanceof Error ? e.message : 'Could not toggle playback.');
+      onPlaybackError?.(
+        e instanceof Error ? e.message : "Could not toggle playback.",
+      );
     }
   }
 
-  // Only split+flipped fully mirrors internal alignment — centered+flipped just
-  // reorders the two top-level blocks, it never mirrors within a block.
-  const mirrored = layout === 'split' && flipped;
-  const mask = layout === 'split' ? SPLIT_FADE_MASK : FADE_MASK;
+  // When flipped, both layouts fully mirror: the two top-level blocks swap sides
+  // (see controlsBlock) AND the song-info / time-label rows reverse internally
+  // so the artwork and text hug the same edge as the block.
+  const mirrored = flipped;
+  const mask = SPLIT_FADE_MASK;
 
-  const progressBar = (
-    <div className={layout === 'split' ? 'w-full' : 'w-full max-w-xl mb-2'}>
+  // Full-bleed progress: a track running edge-to-edge (no side gutters, no
+  // rounded corners) with a glowing white fill — the "premium media bar" look
+  // from mockup 1a. Shared by both layouts. In Split the bar hugs the bottom
+  // screen edge (labels above it) and is a touch thicker to keep a usable drag
+  // target there; in Full it sits flush against the panel's top edge (labels
+  // beneath it). The hit-area pad grows toward the labels, away from the edge;
+  // the labels are then pulled back over it so they sit right next to the bar.
+  const atScreenEdge = layout === "split";
+
+  const timeLabels = (
+    <div
+      key="labels"
+      className={`flex justify-between text-[11px] font-semibold text-white/45 px-4 tabular-nums pointer-events-none ${mirrored ? "flex-row-reverse" : ""} ${atScreenEdge ? "-mb-2" : "-mt-1"}`}
+    >
+      <span ref={elapsedRef}>0:00</span>
+      <span>{formatTime(track.duration_ms)}</span>
+    </div>
+  );
+  const progressTrackEl = (
+    <div
+      key="track"
+      ref={trackRef}
+      className={`group relative cursor-grab active:cursor-grabbing touch-none ${atScreenEdge ? "pt-2.5" : "pb-2.5"}`}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      aria-label="Seek"
+      role="slider"
+    >
       <div
-        ref={trackRef}
-        className="group relative py-2 -my-2 cursor-grab active:cursor-grabbing touch-none"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
-        aria-label="Seek"
-        role="slider"
+        className={`relative bg-white/20 overflow-visible ${atScreenEdge ? "h-[5px]" : "h-[3px]"}`}
       >
-        <div className="h-1 rounded-full bg-white/20 overflow-hidden">
-          <div ref={barRef} className="h-full rounded-full bg-white/80 w-0" />
-        </div>
+        <div
+          ref={barRef}
+          className="h-full bg-white w-0"
+          style={{ boxShadow: "0 0 10px rgba(255,255,255,0.6)" }}
+        />
         <div
           ref={thumbRef}
           className="absolute top-1/2 w-3 h-3 rounded-full bg-white shadow -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-          style={{ left: '0%' }}
+          style={{ left: "0%" }}
         />
       </div>
-      <div className={mirrored ? 'flex flex-row-reverse justify-between text-xs text-white/45 mt-1 tabular-nums' : 'flex justify-between text-xs text-white/45 mt-1 tabular-nums'}>
-        <span ref={elapsedRef}>0:00</span>
-        <span>{formatTime(track.duration_ms)}</span>
-      </div>
+    </div>
+  );
+  // Keyed children: when the layout toggle reorders bar / labels, React MOVES
+  // these nodes instead of tearing them down and rebuilding — which flashed the
+  // fill back to width:0 and (via the shared songInfo subtree) re-fetched the
+  // album art.
+  const progressBlock = (
+    <div key="progress" className="w-full">
+      {atScreenEdge
+        ? [timeLabels, progressTrackEl]
+        : [progressTrackEl, timeLabels]}
     </div>
   );
 
   const songInfo = (
-    <div className={mirrored ? 'flex flex-row-reverse items-center gap-4' : 'flex items-center gap-4'}>
+    <div
+      className={
+        mirrored
+          ? "flex flex-row-reverse items-center gap-4"
+          : "flex items-center gap-4"
+      }
+    >
       {/* Artwork */}
       {artwork ? (
-        <img src={artwork} alt={track.album.name} className="w-11 h-11 rounded-lg flex-shrink-0 shadow-lg" />
+        <img
+          src={artwork}
+          alt={track.album.name}
+          className="w-11 h-11 rounded-lg flex-shrink-0 shadow-lg"
+        />
       ) : (
         <div className="w-11 h-11 rounded-lg flex-shrink-0 bg-white/10 flex items-center justify-center">
           <Music size={18} className="text-white/50" />
@@ -186,10 +251,12 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
       )}
 
       {/* Track info */}
-      <div className={mirrored ? 'min-w-0 text-right' : 'min-w-0 text-left'}>
-        <p className="text-white font-semibold text-sm truncate leading-tight">{track.name}</p>
+      <div className={mirrored ? "min-w-0 text-right" : "min-w-0 text-left"}>
+        <p className="text-white font-semibold text-sm truncate leading-tight">
+          {track.name}
+        </p>
         <p className="text-white/55 text-xs truncate mt-0.5">
-          {track.artists.map((a) => a.name).join(', ')}
+          {track.artists.map((a) => a.name).join(", ")}
         </p>
       </div>
     </div>
@@ -206,7 +273,7 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
       </button>
       <button
         onClick={handleToggle}
-        aria-label={is_playing ? 'Pause' : 'Play'}
+        aria-label={is_playing ? "Pause" : "Play"}
         className="w-12 h-12 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
       >
         {is_playing ? (
@@ -224,51 +291,33 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
       </button>
       <button
         onClick={onToggleQueue}
-        aria-label={queueOpen ? 'Close queue' : 'Show queue'}
+        aria-label={queueOpen ? "Close queue" : "Show queue"}
         className={[
-          'w-10 h-10 flex items-center justify-center rounded-full transition-all active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60',
+          "w-10 h-10 flex items-center justify-center rounded-full transition-all active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
           queueOpen
-            ? 'text-white bg-white/20 hover:bg-white/30'
-            : 'text-white/50 hover:text-white hover:bg-white/15',
-        ].join(' ')}
+            ? "text-white bg-white/20 hover:bg-white/30"
+            : "text-white/50 hover:text-white hover:bg-white/15",
+        ].join(" ")}
       >
         <ListMusic size={18} />
       </button>
     </div>
   );
 
-  const content = layout === 'split' ? (
-    <div className="relative flex items-center justify-between gap-4 px-6 pt-3 pb-5 w-full">
-      {flipped ? (
-        <>
-          {controls}
-          <div className="flex flex-col gap-2 w-full max-w-xs">
-            {songInfo}
-            {progressBar}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="flex flex-col gap-2 w-full max-w-xs">
-            {songInfo}
-            {progressBar}
-          </div>
-          {controls}
-        </>
-      )}
-    </div>
-  ) : (
-    <div className="relative flex flex-col items-center px-6 pt-3 pb-5">
-      {progressBar}
-      <div className="flex items-center gap-4 w-full max-w-xl">
+  // Song info pinned to one screen corner, transport controls to the other —
+  // shared by both layouts (Split and Full differ only in where the progress
+  // bar goes and in the background treatment, not in the controls row).
+  const controlsBlock = (
+    <div key="controls" className={atScreenEdge ? "pt-3 pb-2" : "pt-2 pb-4"}>
+      <div className="flex items-center justify-between gap-4 px-4 w-full">
         {flipped ? (
           <>
             {controls}
-            <div className="flex-1 min-w-0">{songInfo}</div>
+            <div className="min-w-0 max-w-xs">{songInfo}</div>
           </>
         ) : (
           <>
-            <div className="flex-1 min-w-0">{songInfo}</div>
+            <div className="min-w-0 max-w-xs">{songInfo}</div>
             {controls}
           </>
         )}
@@ -276,28 +325,51 @@ export function MiniPlayer({ playback, accessToken, getInterpolatedMs, onNext, o
     </div>
   );
 
+  // One stable outer element with keyed children, reordered per layout — Split
+  // puts the controls above the bottom-edge bar, Full puts the top-edge bar
+  // above the controls. Keeping the tree stable is what stops the toggle from
+  // remounting (and glitching) the player.
+  const content = (
+    <div className="relative flex flex-col w-full">
+      {atScreenEdge
+        ? [controlsBlock, progressBlock]
+        : [progressBlock, controlsBlock]}
+    </div>
+  );
+
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30">
-      {/* Mobile: the mask's fade zones eat a much larger share of a narrow screen,
-          so below `sm` skip it entirely and just show a flat, semi-opaque panel. */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-xs sm:hidden" />
-      <div
-        className={`block sm:hidden absolute top-0 left-0 right-0 h-px bg-white/20`}
-      />
+      {/* Split background — kept mounted (just hidden) in the other layout so
+          switching never re-inits the backdrop-blur mid-transition. */}
+      <div className={atScreenEdge ? undefined : "hidden"}>
+        {/* Mobile: the mask's fade zones eat a much larger share of a narrow
+            screen, so below `sm` skip it entirely and just show a flat panel. */}
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-xs sm:hidden" />
+        <div className="block sm:hidden absolute top-0 left-0 right-0 h-px bg-white/20" />
 
-      {/* sm and up: fading dark background layer. In split mode it's skewed for a
-          diagonal edge, so it's oversized and wrapped in an overflow-hidden clipper
-          (see SPLIT_SKEW_STYLE) to avoid revealing gaps at its top/bottom. */}
-      <div className={layout === 'split' ? 'hidden sm:block absolute inset-0 overflow-hidden' : 'hidden sm:contents'}>
+        {/* sm and up: skewed, edge-faded dark layer — oversized and wrapped in
+            an overflow-hidden clipper (see SPLIT_SKEW_STYLE) so the skew never
+            reveals gaps at its top/bottom. */}
+        <div className="hidden sm:block absolute inset-0 overflow-hidden">
+          <div
+            className="absolute inset-0 bg-black/55 backdrop-blur-2xl"
+            style={{
+              maskImage: mask,
+              WebkitMaskImage: mask,
+              ...SPLIT_SKEW_STYLE,
+            }}
+          />
+        </div>
         <div
-          className="absolute inset-0 bg-black/55 backdrop-blur-2xl"
-          style={layout === 'split' ? { maskImage: mask, WebkitMaskImage: mask, ...SPLIT_SKEW_STYLE } : { maskImage: mask, WebkitMaskImage: mask }}
+          className="hidden sm:block absolute top-0 left-0 right-0 h-px bg-white/50"
+          style={{ maskImage: mask, WebkitMaskImage: mask }}
         />
       </div>
-      {/* Top border line with same fade (kept unskewed — at 1px tall the slant isn't visible anyway) */}
+
+      {/* Full background — one solid, full-width blurred panel behind the whole
+          bar, no edge fade. The progress track's own hairline is the top border. */}
       <div
-        className={`hidden sm:block absolute top-0 left-0 right-0 h-px bg-white/${layout === 'split' ? '50' : '20'}`}
-        style={{ maskImage: mask, WebkitMaskImage: mask }}
+        className={`absolute inset-0 bg-black/55 backdrop-blur-2xl ${atScreenEdge ? "hidden" : ""}`}
       />
 
       {/* Content — always fully opaque */}

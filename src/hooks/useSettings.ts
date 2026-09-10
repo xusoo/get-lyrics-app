@@ -10,7 +10,7 @@ const DEFAULTS: Settings = {
   defaultLyricsOffset: 0,
   backgroundBlur: 30,
   backgroundDim: 50,
-  miniPlayerLayout: 'centered',
+  miniPlayerLayout: 'full',
   miniPlayerFlipped: false,
   cacheMaxTTL: 90 * 24 * 60 * 60 * 1000, // 90 days
   cacheMaxEntries: 1000,

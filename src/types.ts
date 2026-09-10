@@ -38,7 +38,7 @@ export interface LyricLine {
   text: string;
 }
 
-export type MiniPlayerLayout = 'centered' | 'split';
+export type MiniPlayerLayout = 'full' | 'split';
 
 export interface Settings {
   fontSize: number; // base px
